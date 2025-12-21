@@ -108,3 +108,13 @@ def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
     db.commit()
     
     return {"status": "cancelled", "order_id": order_id}
+
+
+@router.delete("/all")
+def delete_all_tickets(db: Session = Depends(get_db)):
+    """Удаляет ВСЕ билеты из базы данных"""
+    count = db.query(Ticket).count()
+    db.query(Ticket).delete()
+    db.commit()
+    
+    return {"status": "deleted", "count": count, "message": f"Deleted {count} tickets"}

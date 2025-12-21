@@ -25,6 +25,32 @@ def health_check():
 def root():
     return {"service": "AURA Tickets API", "version": "1.0.0", "docs": "/docs"}
 
+# Диагностика БД
+@app.get("/debug/db")
+def debug_db():
+    """Проверка подключения к базе данных"""
+    try:
+        from app.database import engine
+        from app.config import settings
+        import sqlalchemy
+        
+        # Пробуем подключиться
+        with engine.connect() as conn:
+            result = conn.execute(sqlalchemy.text("SELECT 1"))
+            result.fetchone()
+        
+        return {
+            "status": "connected",
+            "database_url": settings.DATABASE_URL[:50] + "..." if len(settings.DATABASE_URL) > 50 else settings.DATABASE_URL,
+            "message": "Database connection successful"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "error_type": type(e).__name__
+        }
+
 # Роутеры подключаем после
 from app.routers import tickets, verify, stats, history
 

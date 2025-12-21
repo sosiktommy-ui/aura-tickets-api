@@ -14,7 +14,38 @@ def generate_signature(order_id: str, token: str) -> str:
         hashlib.sha256
     ).hexdigest()[:16]
 
+def verify_signature_from_qr(qr_data: dict, signature: str) -> bool:
+    """
+    Проверяет подпись QR-кода так же как её создаёт бот:
+    Бот подписывает: AURA|version|order_id|type|date|name|email|phone|price|paid|token
+    """
+    # Восстанавливаем строку для подписи (без самой подписи)
+    data_parts = [
+        "AURA",
+        qr_data.get("version", "1"),
+        qr_data.get("order_id", ""),
+        qr_data.get("ticket_type", ""),
+        qr_data.get("event_date", ""),
+        qr_data.get("name", ""),
+        qr_data.get("email", ""),
+        qr_data.get("phone", ""),
+        qr_data.get("price", ""),
+        qr_data.get("paid", ""),
+        qr_data.get("token", "")
+    ]
+    data_for_signing = "|".join(data_parts)
+    
+    # Генерируем подпись так же как бот
+    expected = hmac.new(
+        settings.QR_SECRET_KEY.encode('utf-8'),
+        data_for_signing.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()[:16].upper()
+    
+    return hmac.compare_digest(expected, signature.upper())
+
 def verify_signature(order_id: str, token: str, signature: str) -> bool:
+    """Старый метод - оставляем для совместимости"""
     expected = generate_signature(order_id, token)
     return hmac.compare_digest(expected, signature)
 

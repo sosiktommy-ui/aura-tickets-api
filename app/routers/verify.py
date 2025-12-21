@@ -5,7 +5,7 @@ from datetime import datetime
 from app.database import get_db
 from app.models import Ticket, ScanHistory
 from app.schemas import VerifyRequest, VerifyResponse
-from app.security import parse_qr_data, verify_signature
+from app.security import parse_qr_data, verify_signature_from_qr
 
 router = APIRouter(prefix="/api", tags=["verify"])
 
@@ -23,8 +23,8 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     token = qr_data.get("token")
     signature = qr_data.get("signature", "")
     
-    # 2. Проверяем подпись
-    if not verify_signature(order_id, token, signature):
+    # 2. Проверяем подпись (используем тот же метод что и бот)
+    if not verify_signature_from_qr(qr_data, signature):
         log_scan(db, None, order_id, "forged", request.scanner_id, "Invalid signature")
         return VerifyResponse(
             status="invalid",
