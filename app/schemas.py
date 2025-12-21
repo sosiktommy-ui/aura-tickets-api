@@ -15,6 +15,8 @@ class TicketCreate(BaseModel):
     discount: Optional[float] = 0
     payment_amount: Optional[float] = 0
     promocode: Optional[str] = None
+    qr_token: Optional[str] = None
+    qr_signature: Optional[str] = None
 
 class TicketResponse(BaseModel):
     id: int

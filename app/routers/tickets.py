@@ -18,8 +18,9 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
             detail=f"Ticket with order_id {ticket.order_id} already exists"
         )
     
-    token = generate_token()
-    signature = generate_signature(ticket.order_id, token)
+    # Используем переданные токен/подпись от бота, или генерируем новые
+    token = ticket.qr_token if ticket.qr_token else generate_token()
+    signature = ticket.qr_signature if ticket.qr_signature else generate_signature(ticket.order_id, token)
     
     db_ticket = Ticket(
         order_id=ticket.order_id,
