@@ -1,15 +1,27 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import time
 
-from app.database import engine, Base
 from app.routers import tickets, verify, stats, history
 from app.config import settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    print("✅ Database tables created")
+    # Отложенная инициализация БД
+    max_retries = 5
+    for i in range(max_retries):
+        try:
+            from app.database import engine, Base
+            Base.metadata.create_all(bind=engine)
+            print("✅ Database tables created")
+            break
+        except Exception as e:
+            print(f"⚠️ DB connection attempt {i+1}/{max_retries} failed: {e}")
+            if i < max_retries - 1:
+                time.sleep(2)
+            else:
+                print("❌ Could not connect to database, continuing anyway...")
     yield
     print("👋 Shutting down...")
 
