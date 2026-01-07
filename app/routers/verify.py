@@ -16,7 +16,7 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     qr_data = parse_qr_data(request.qr_data)
     
     if not qr_data:
-        log_scan(db, None, None, "invalid", request.scanner_id, "Invalid QR format")
+        log_scan(db, None, None, "invalid", request.scanner_id, "Invalid QR format", club_id=None)
         return VerifyResponse(status="invalid", message="Invalid QR format")
     
     order_id = qr_data.get("order_id")
@@ -25,7 +25,7 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     
     # 2. Проверяем подпись (используем тот же метод что и бот)
     if not verify_signature_from_qr(qr_data, signature):
-        log_scan(db, None, order_id, "forged", request.scanner_id, "Invalid signature")
+        log_scan(db, None, order_id, "forged", request.scanner_id, "Invalid signature", club_id=None)
         return VerifyResponse(
             status="invalid",
             message="Forged ticket - invalid signature",
@@ -40,7 +40,7 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
         ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
     
     if not ticket:
-        log_scan(db, None, order_id, "invalid", request.scanner_id, "Not found in DB")
+        log_scan(db, None, order_id, "invalid", request.scanner_id, "Not found in DB", club_id=None)
         return VerifyResponse(
             status="invalid",
             message="Ticket not found in database",
@@ -49,7 +49,7 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     
     # 4. Проверяем статус
     if ticket.status == "cancelled":
-        log_scan(db, ticket.id, ticket.order_id, "invalid", request.scanner_id, "Cancelled")
+        log_scan(db, ticket.id, ticket.order_id, "invalid", request.scanner_id, "Cancelled", club_id=ticket.club_id)
         return VerifyResponse(
             status="invalid",
             message="Ticket has been cancelled",
@@ -61,7 +61,7 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
         ticket.last_scan_at = datetime.now()
         db.commit()
         
-        log_scan(db, ticket.id, ticket.order_id, "duplicate", request.scanner_id)
+        log_scan(db, ticket.id, ticket.order_id, "duplicate", request.scanner_id, notes=None, club_id=ticket.club_id)
         
         return VerifyResponse(
             status="used",
@@ -78,7 +78,7 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     ticket.scanned_by = request.scanner_id
     db.commit()
     
-    log_scan(db, ticket.id, ticket.order_id, "valid", request.scanner_id)
+    log_scan(db, ticket.id, ticket.order_id, "valid", request.scanner_id, notes=None, club_id=ticket.club_id)
     
     return VerifyResponse(
         status="valid",
@@ -100,13 +100,15 @@ def ticket_to_dict(ticket: Ticket) -> dict:
     }
 
 
-def log_scan(db: Session, ticket_id, order_id, result, scanner_id, notes=None):
+def log_scan(db: Session, ticket_id, order_id, result, scanner_id, notes=None, club_id=None):
+    """IMPREZA: Добавлен параметр club_id для multitenancy"""
     scan = ScanHistory(
         ticket_id=ticket_id,
         order_id=order_id,
         scan_result=result,
         scanner_id=scanner_id,
-        notes=notes
+        notes=notes,
+        club_id=club_id
     )
     db.add(scan)
     db.commit()

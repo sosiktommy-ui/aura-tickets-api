@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
 from app.database import get_db
-from app.models import Ticket
+from app.models import Ticket, ScanHistory
 from app.schemas import HistoryResponse, HistoryItem
 
 router = APIRouter(prefix="/api/history", tags=["history"])
@@ -50,3 +50,39 @@ def get_history(event_date: str = None, limit: int = 100, db: Session = Depends(
         items=items,
         stats={"bought": total, "entered": entered, "pending": total - entered}
     )
+
+@router.delete("/")
+def delete_history(club_id: int, db: Session = Depends(get_db)):
+    """Удаляет историю сканирования для конкретного клуба (города) - IMPREZA Multitenancy"""
+    if not club_id:
+        raise HTTPException(status_code=400, detail="club_id обязателен")
+    
+    try:
+        # Удаляем все записи из scan_history для этого club_id
+        deleted_scans = db.query(ScanHistory).filter(
+            ScanHistory.club_id == club_id
+        ).delete(synchronize_session=False)
+        
+        # Сбрасываем статусы билетов этого клуба обратно в valid
+        updated_tickets = db.query(Ticket).filter(
+            Ticket.club_id == club_id,
+            Ticket.status.in_(["used", "cancelled"])
+        ).update({
+            "status": "valid",
+            "scan_count": 0,
+            "first_scan_at": None,
+            "last_scan_at": None
+        }, synchronize_session=False)
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "deleted_scans": deleted_scans,
+            "reset_tickets": updated_tickets,
+            "club_id": club_id,
+            "message": f"История для club_id={club_id} успешно удалена"
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка удаления истории: {str(e)}")

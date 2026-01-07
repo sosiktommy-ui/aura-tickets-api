@@ -10,11 +10,16 @@ from app.schemas import StatsResponse
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 @router.get("/", response_model=StatsResponse)
-def get_stats(event_date: str = None, db: Session = Depends(get_db)):
+def get_stats(event_date: str = None, club_id: int = None, db: Session = Depends(get_db)):
+    """IMPREZA: Добавлен параметр club_id для фильтрации"""
     query = db.query(Ticket)
     
     if event_date:
         query = query.filter(Ticket.event_date.like(f"%{event_date}%"))
+    
+    # IMPREZA: Фильтр по club_id
+    if club_id:
+        query = query.filter(Ticket.club_id == club_id)
     
     total = query.count()
     entered = query.filter(Ticket.status == "used").count()
@@ -22,12 +27,16 @@ def get_stats(event_date: str = None, db: Session = Depends(get_db)):
     cancelled = query.filter(Ticket.status == "cancelled").count()
     
     today = date.today()
-    today_scans = db.query(ScanHistory).filter(
+    today_scans_query = db.query(ScanHistory).filter(
         func.date(ScanHistory.scan_time) == today
     )
     
-    duplicate_attempts = today_scans.filter(ScanHistory.scan_result == "duplicate").count()
-    invalid_attempts = today_scans.filter(ScanHistory.scan_result.in_(["invalid", "forged"])).count()
+    # IMPREZA: Фильтр по club_id в scan_history
+    if club_id:
+        today_scans_query = today_scans_query.filter(ScanHistory.club_id == club_id)
+    
+    duplicate_attempts = today_scans_query.filter(ScanHistory.scan_result == "duplicate").count()
+    invalid_attempts = today_scans_query.filter(ScanHistory.scan_result.in_(["invalid", "forged"])).count()
     
     return StatsResponse(
         total_tickets=total,

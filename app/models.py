@@ -51,6 +51,9 @@ class ScanHistory(Base):
     ticket_id = Column(Integer, ForeignKey("tickets.id"))
     order_id = Column(String(50), index=True)
     
+    # IMPREZA: Добавлено для multitenancy
+    club_id = Column(Integer, nullable=True, index=True)
+    
     scan_time = Column(DateTime, server_default=func.now())
     scan_result = Column(String(20))
     scanner_id = Column(String(100))
