@@ -129,6 +129,21 @@ def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
     return {"status": "cancelled", "order_id": order_id}
 
 
+@router.delete("/")
+def delete_tickets_by_club(club_id: int = None, db: Session = Depends(get_db)):
+    """Удаляет билеты для конкретного клуба или все билеты"""
+    query = db.query(Ticket)
+    
+    if club_id:
+        query = query.filter(Ticket.club_id == club_id)
+    
+    count = query.count()
+    query.delete()
+    db.commit()
+    
+    return {"status": "deleted", "deleted": count, "club_id": club_id}
+
+
 @router.delete("/all")
 def delete_all_tickets(db: Session = Depends(get_db)):
     """Удаляет ВСЕ билеты из базы данных"""
