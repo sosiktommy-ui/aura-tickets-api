@@ -17,7 +17,7 @@ def generate_signature(order_id: str, token: str) -> str:
 def verify_signature_from_qr(qr_data: dict, signature: str) -> bool:
     """
     Проверяет подпись QR-кода так же как её создаёт бот:
-    Бот подписывает: AURA|version|order_id|type|date|name|email|phone|price|paid|token
+    IMPREZA: Бот подписывает: AURA|version|order_id|type|date|name|email|phone|price|paid|token|city|country
     """
     # Восстанавливаем строку для подписи (без самой подписи)
     data_parts = [
@@ -31,7 +31,9 @@ def verify_signature_from_qr(qr_data: dict, signature: str) -> bool:
         qr_data.get("phone", ""),
         qr_data.get("price", ""),
         qr_data.get("paid", ""),
-        qr_data.get("token", "")
+        qr_data.get("token", ""),
+        qr_data.get("city", ""),  # IMPREZA
+        qr_data.get("country", "")  # IMPREZA
     ]
     data_for_signing = "|".join(data_parts)
     
@@ -52,15 +54,17 @@ def verify_signature(order_id: str, token: str, signature: str) -> bool:
 def parse_qr_data(qr_string: str) -> dict | None:
     """
     Парсит QR строку
-    Формат: AURA|version|order_id|ticket_type|date|name|email|phone|price|paid|token|signature
+    IMPREZA: Формат: AURA|version|order_id|ticket_type|date|name|email|phone|price|paid|token|city|country|signature
     """
     try:
         parts = qr_string.split("|")
         
+        # Поддержка старого (12 полей) и нового (14 полей) форматов
         if len(parts) < 12 or parts[0] != "AURA":
             return None
         
-        return {
+        # Базовые поля (общие для обоих форматов)
+        result = {
             "version": parts[1],
             "order_id": parts[2],
             "ticket_type": parts[3],
@@ -70,8 +74,20 @@ def parse_qr_data(qr_string: str) -> dict | None:
             "phone": parts[7],
             "price": parts[8],
             "paid": parts[9],
-            "token": parts[10],
-            "signature": parts[11] if len(parts) > 11 else ""
+            "token": parts[10]
         }
+        
+        # IMPREZA: Новый формат с city и country
+        if len(parts) >= 14:
+            result["city"] = parts[11]
+            result["country"] = parts[12]
+            result["signature"] = parts[13]
+        else:
+            # Старый формат без city/country
+            result["city"] = ""
+            result["country"] = ""
+            result["signature"] = parts[11] if len(parts) > 11 else ""
+        
+        return result
     except Exception:
         return None
