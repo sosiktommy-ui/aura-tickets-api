@@ -20,7 +20,7 @@ def login(credentials: LoginRequest):
     try:
         # Найти клуб
         query = text("""
-            SELECT c.club_id, c.city_name, co.country_code
+            SELECT c.club_id, c.city_name, co.country_code, c.city_english
             FROM clubs c
             JOIN countries co ON c.country_id = co.country_id
             WHERE c.login = :login 
@@ -37,7 +37,8 @@ def login(credentials: LoginRequest):
         return {
             "club_id": club[0],
             "city_name": club[1],
-            "country_code": club[2]
+            "country_code": club[2],
+            "city_english": club[3]  # IMPREZA: для сравнения с QR
         }
     
     finally:
