@@ -17,6 +17,9 @@ class TicketCreate(BaseModel):
     promocode: Optional[str] = None
     qr_token: Optional[str] = None
     qr_signature: Optional[str] = None
+    city_name: Optional[str] = None
+    country_code: Optional[str] = None
+    club_id: Optional[int] = None
 
 class TicketResponse(BaseModel):
     id: int
@@ -34,6 +37,9 @@ class TicketResponse(BaseModel):
     qr_token: Optional[str]
     qr_signature: Optional[str]
     created_at: datetime
+    city_name: Optional[str]
+    country_code: Optional[str]
+    club_id: Optional[int]
     
     class Config:
         from_attributes = True

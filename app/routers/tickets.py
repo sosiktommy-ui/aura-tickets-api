@@ -37,7 +37,10 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         promocode=ticket.promocode,
         qr_token=token,
         qr_signature=signature,
-        status="valid"
+        status="valid",
+        city_name=ticket.city_name,  # IMPREZA
+        country_code=ticket.country_code,  # IMPREZA
+        club_id=ticket.club_id  # IMPREZA
     )
     
     db.add(db_ticket)
