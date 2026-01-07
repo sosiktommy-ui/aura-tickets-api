@@ -78,7 +78,12 @@ def get_tickets(
     if club_id:
         entered_query = entered_query.filter(Ticket.club_id == club_id)
     entered = entered_query.count()
-    pending = db.query(Ticket).filter(Ticket.status == "valid").count()
+    
+    # IMPREZA: Подсчет pending тоже фильтруем по club_id
+    pending_query = db.query(Ticket).filter(Ticket.status == "valid")
+    if club_id:
+        pending_query = pending_query.filter(Ticket.club_id == club_id)
+    pending = pending_query.count()
     
     tickets = query.order_by(Ticket.created_at.desc()).offset(offset).limit(limit).all()
     
