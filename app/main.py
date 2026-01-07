@@ -52,12 +52,13 @@ def debug_db():
         }
 
 # Роутеры подключаем после
-from app.routers import tickets, verify, stats, history
+from app.routers import tickets, verify, stats, history, auth  # IMPREZA: добавлен auth
 
 app.include_router(tickets.router)
 app.include_router(verify.router)
 app.include_router(stats.router)
 app.include_router(history.router)
+app.include_router(auth.router)  # IMPREZA: подключен роутер авторизации
 
 # Инициализация БД при первом запросе
 @app.on_event("startup")

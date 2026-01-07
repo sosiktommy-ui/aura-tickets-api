@@ -51,6 +51,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
 def get_tickets(
     event_date: str = None,
     status_filter: str = None,
+    club_id: int = None,  # IMPREZA: добавлен параметр
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db)
@@ -62,6 +63,10 @@ def get_tickets(
     
     if status_filter:
         query = query.filter(Ticket.status == status_filter)
+    
+    # IMPREZA: Фильтр по клубу
+    if club_id:
+        query = query.filter(Ticket.club_id == club_id)
     
     total = query.count()
     entered = db.query(Ticket).filter(Ticket.status == "used").count()

@@ -25,6 +25,11 @@ class Ticket(Base):
     qr_token = Column(String(100), unique=True, index=True)
     qr_signature = Column(String(100))
     
+    # IMPREZA: Новые поля для мультитенантности
+    country_code = Column(String(10), nullable=True, index=True)
+    city_name = Column(String(100), nullable=True, index=True)
+    club_id = Column(Integer, nullable=True, index=True)
+    
     status = Column(String(20), default="valid", index=True)
     scan_count = Column(Integer, default=0)
     first_scan_at = Column(DateTime)
