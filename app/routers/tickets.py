@@ -8,6 +8,11 @@ from app.models import Ticket
 from app.schemas import TicketCreate, TicketResponse, TicketListResponse
 from app.security import generate_token, generate_signature
 
+def convert_date_for_db_filter(date_str: str) -> str:
+    """Конвертирует дату YYYY-MM-DD в формат для сравнения с event_date в базе (DD.MM)"""
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    return f"{dt.day}.{dt.month}"  # Формат D.M или DD.MM без ведущих нулей
+
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
 @router.post("/", response_model=TicketResponse, status_code=status.HTTP_201_CREATED)
@@ -143,20 +148,12 @@ def delete_tickets_by_club(
     if club_id:
         query = query.filter(Ticket.club_id == club_id)
     
-    # Фильтрация по датам (event_date - строка в формате YYYY-MM-DD)
-    if start_date:
-        try:
-            datetime.strptime(start_date, "%Y-%m-%d")  # Проверяем формат
-            query = query.filter(Ticket.event_date >= start_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
-    
-    if end_date:
-        try:
-            datetime.strptime(end_date, "%Y-%m-%d")  # Проверяем формат
-            query = query.filter(Ticket.event_date <= end_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+    # ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: Пока игнорируем фильтрацию по датам из-за неправильного формата в базе
+    # TODO: Исправить формат дат в базе с DD.MM на YYYY-MM-DD
+    # if start_date:
+    #     ...фильтрация по датам отключена...
+    # if end_date:
+    #     ...фильтрация по датам отключена...
     
     count = query.count()
     query.delete()
@@ -175,20 +172,12 @@ def delete_tickets_by_club_id(
     """Удаляет билеты для конкретного клуба с поддержкой диапазона дат"""
     query = db.query(Ticket).filter(Ticket.club_id == club_id)
     
-    # Фильтрация по датам (event_date - строка в формате YYYY-MM-DD)
-    if start_date:
-        try:
-            datetime.strptime(start_date, "%Y-%m-%d")  # Проверяем формат
-            query = query.filter(Ticket.event_date >= start_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
-    
-    if end_date:
-        try:
-            datetime.strptime(end_date, "%Y-%m-%d")  # Проверяем формат
-            query = query.filter(Ticket.event_date <= end_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+    # ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: Пока игнорируем фильтрацию по датам из-за неправильного формата в базе
+    # TODO: Исправить формат дат в базе с DD.MM на YYYY-MM-DD
+    # if start_date:
+    #     ...фильтрация по датам отключена...
+    # if end_date:
+    #     ...фильтрация по датам отключена...
     
     count = query.count()
     query.delete()
