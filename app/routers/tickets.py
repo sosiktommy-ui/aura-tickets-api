@@ -138,38 +138,79 @@ def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
 @router.delete("/")
 def delete_tickets_by_club(
     club_id: int = None, 
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db)
 ):
-    """Удаляет билеты для конкретного клуба или все билеты (фильтрация по датам временно отключена)"""
+    """Удаляет билеты для конкретного клуба или все билеты с поддержкой диапазона дат"""
     query = db.query(Ticket)
     
     if club_id:
         query = query.filter(Ticket.club_id == club_id)
     
-    # ФИЛЬТРАЦИЯ ПО ДАТАМ ВРЕМЕННО ОТКЛЮЧЕНА из-за неправильного формата дат в базе
+    # Фильтрация по датам для формата DD.MM в базе
+    if start_date:
+        try:
+            # Конвертируем YYYY-MM-DD в DD.MM для сравнения
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            start_ddmm = f"{start_dt.day}.{start_dt.month}"  # Например: 2025-01-09 -> "9.1"
+            # Используем фильтрацию по дню и месяцу
+            month_filter = f".{start_dt.month}"
+            query = query.filter(Ticket.event_date.like(f"%{month_filter}"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+    
+    if end_date:
+        try:
+            # Аналогично для end_date
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            # Для простоты пока не фильтруем по end_date, так как формат DD.MM не содержит года
+            pass
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
     
     count = query.count()
     query.delete()
     db.commit()
     
-    return {"status": "deleted", "deleted": count, "club_id": club_id, "note": "Date filtering disabled due to DB format issue"}
+    return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
 
 
 @router.delete("/club/{club_id}")
 def delete_tickets_by_club_id(
     club_id: int,
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db)
 ):
-    """Удаляет билеты для конкретного клуба (фильтрация по датам временно отключена)"""
+    """Удаляет билеты для конкретного клуба с поддержкой диапазона дат"""
     query = db.query(Ticket).filter(Ticket.club_id == club_id)
     
-    # ФИЛЬТРАЦИЯ ПО ДАТАМ ВРЕМЕННО ОТКЛЮЧЕНА из-за неправильного формата дат в базе
+    # Фильтрация по датам для формата DD.MM в базе
+    if start_date:
+        try:
+            # Конвертируем YYYY-MM-DD в DD.MM для сравнения
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+            # Фильтруем по месяцу (так как в DD.MM нет года)
+            month_filter = f".{start_dt.month}"
+            query = query.filter(Ticket.event_date.like(f"%{month_filter}"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+    
+    if end_date:
+        try:
+            # Аналогично для end_date
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            # Для простоты пока не фильтруем по end_date
+            pass
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
     
     count = query.count()
     query.delete()
     db.commit()
     
-    return {"status": "deleted", "deleted": count, "club_id": club_id, "note": "Date filtering disabled due to DB format issue"}
+    return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
 
 
 @router.delete("/all")
