@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from datetime import datetime
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.models import Ticket, ScanHistory
@@ -86,3 +88,73 @@ def delete_history(club_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Ошибка удаления истории: {str(e)}")
+
+
+class HideDateRange(BaseModel):
+    start_date: str  # YYYY-MM-DD
+    end_date: str    # YYYY-MM-DD
+
+@router.post("/hide-for-managers")
+def hide_for_all_managers(
+    date_range: HideDateRange,
+    db: Session = Depends(get_db)
+):
+    """Скрывает записи от ВСЕХ менеджеров в выбранном диапазоне дат"""
+    try:
+        start_dt = datetime.strptime(date_range.start_date, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(date_range.end_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    # Обновляем записи в диапазоне дат
+    query = db.query(ScanHistory).filter(
+        ScanHistory.scan_time >= start_dt,
+        ScanHistory.scan_time <= datetime.combine(end_dt, datetime.max.time()),
+        ScanHistory.hidden_for_manager == False
+    )
+    
+    count = query.count()
+    query.update({"hidden_for_manager": True})
+    db.commit()
+    
+    return {
+        "status": "hidden",
+        "hidden": count,
+        "start_date": date_range.start_date,
+        "end_date": date_range.end_date,
+        "scope": "all_managers"
+    }
+
+@router.post("/hide-for-manager/{club_id}")
+def hide_for_city_manager(
+    club_id: int,
+    date_range: HideDateRange,
+    db: Session = Depends(get_db)
+):
+    """Скрывает записи от менеджера конкретного города в выбранном диапазоне дат"""
+    try:
+        start_dt = datetime.strptime(date_range.start_date, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(date_range.end_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    
+    # Обновляем записи для конкретного города в диапазоне дат
+    query = db.query(ScanHistory).filter(
+        ScanHistory.club_id == club_id,
+        ScanHistory.scan_time >= start_dt,
+        ScanHistory.scan_time <= datetime.combine(end_dt, datetime.max.time()),
+        ScanHistory.hidden_for_manager == False
+    )
+    
+    count = query.count()
+    query.update({"hidden_for_manager": True})
+    db.commit()
+    
+    return {
+        "status": "hidden",
+        "hidden": count,
+        "club_id": club_id,
+        "start_date": date_range.start_date,
+        "end_date": date_range.end_date,
+        "scope": "city_manager"
+    }

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Float, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -53,6 +53,9 @@ class ScanHistory(Base):
     
     # IMPREZA: Добавлено для multitenancy
     club_id = Column(Integer, nullable=True, index=True)
+    
+    # IMPREZA: Скрытие от менеджеров
+    hidden_for_manager = Column(Boolean, default=False, index=True)
     
     scan_time = Column(DateTime, server_default=func.now())
     scan_result = Column(String(20))
