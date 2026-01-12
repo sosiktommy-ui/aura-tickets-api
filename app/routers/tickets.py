@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from app.database import get_db
-from app.models import Ticket
+from app.models import Ticket, ScanHistory
 from app.schemas import TicketCreate, TicketResponse, TicketListResponse
 from app.security import generate_token, generate_signature
 
@@ -178,8 +178,16 @@ def delete_tickets_by_club(
             if month_filters:
                 query = query.filter(or_(*month_filters))
         
-        count = query.count()
-        query.delete(synchronize_session=False)
+        # Получаем ID билетов для удаления
+        ticket_ids = [t.id for t in query.all()]
+        count = len(ticket_ids)
+        
+        if ticket_ids:
+            # Сначала удаляем связанные записи из scan_history (FK constraint)
+            db.query(ScanHistory).filter(ScanHistory.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+            # Потом удаляем билеты
+            db.query(Ticket).filter(Ticket.id.in_(ticket_ids)).delete(synchronize_session=False)
+        
         db.commit()
         
         return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
@@ -230,8 +238,16 @@ def delete_tickets_by_club_id(
             if month_filters:
                 query = query.filter(or_(*month_filters))
         
-        count = query.count()
-        query.delete(synchronize_session=False)
+        # Получаем ID билетов для удаления
+        ticket_ids = [t.id for t in query.all()]
+        count = len(ticket_ids)
+        
+        if ticket_ids:
+            # Сначала удаляем связанные записи из scan_history (FK constraint)
+            db.query(ScanHistory).filter(ScanHistory.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+            # Потом удаляем билеты
+            db.query(Ticket).filter(Ticket.id.in_(ticket_ids)).delete(synchronize_session=False)
+        
         db.commit()
         
         return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
@@ -246,7 +262,12 @@ def delete_all_tickets(db: Session = Depends(get_db)):
     """Удаляет ВСЕ билеты из базы данных"""
     try:
         count = db.query(Ticket).count()
+        
+        # Сначала удаляем всю историю сканирований (FK constraint)
+        db.query(ScanHistory).delete(synchronize_session=False)
+        # Потом удаляем все билеты
         db.query(Ticket).delete(synchronize_session=False)
+        
         db.commit()
         
         return {"status": "deleted", "count": count, "message": f"Deleted {count} tickets"}
