@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from datetime import date
+from datetime import date, datetime
+from typing import Optional
 
 from app.database import get_db
 from app.models import Ticket
@@ -130,18 +131,70 @@ def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/")
-def delete_tickets_by_club(club_id: int = None, db: Session = Depends(get_db)):
-    """Удаляет билеты для конкретного клуба или все билеты"""
+def delete_tickets_by_club(
+    club_id: int = None, 
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db)
+):
+    """Удаляет билеты для конкретного клуба или все билеты с поддержкой диапазона дат"""
     query = db.query(Ticket)
     
     if club_id:
         query = query.filter(Ticket.club_id == club_id)
     
+    # Фильтрация по датам
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+            query = query.filter(Ticket.event_date >= start_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+    
+    if end_date:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+            query = query.filter(Ticket.event_date <= end_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+    
     count = query.count()
     query.delete()
     db.commit()
     
-    return {"status": "deleted", "deleted": count, "club_id": club_id}
+    return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
+
+
+@router.delete("/club/{club_id}")
+def delete_tickets_by_club_id(
+    club_id: int,
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    db: Session = Depends(get_db)
+):
+    """Удаляет билеты для конкретного клуба с поддержкой диапазона дат"""
+    query = db.query(Ticket).filter(Ticket.club_id == club_id)
+    
+    # Фильтрация по датам
+    if start_date:
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+            query = query.filter(Ticket.event_date >= start_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
+    
+    if end_date:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+            query = query.filter(Ticket.event_date <= end_dt)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+    
+    count = query.count()
+    query.delete()
+    db.commit()
+    
+    return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
 
 
 @router.delete("/all")
