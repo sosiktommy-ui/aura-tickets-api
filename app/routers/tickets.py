@@ -148,25 +148,46 @@ def delete_tickets_by_club(
     if club_id:
         query = query.filter(Ticket.club_id == club_id)
     
-    # Фильтрация по датам для формата DD.MM в базе
-    if start_date:
+    # Фильтрация по датам для формата DD.MM в базе (учет диапазона месяцев)
+    if start_date or end_date:
         try:
-            # Конвертируем YYYY-MM-DD в DD.MM для сравнения
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            # Формат с ведущими нулями: ".01", ".02" и т.д.
-            month_filter = f".{start_dt.month:02d}"  # :02d добавляет ведущий ноль
-            query = query.filter(Ticket.event_date.like(f"%{month_filter}"))
+            month_filters = []
+            
+            # Определяем месяцы в диапазоне
+            if start_date:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                start_month = start_dt.month
+            else:
+                start_month = 1  # Январь по умолчанию
+                
+            if end_date:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                end_month = end_dt.month
+            else:
+                end_month = 12  # Декабрь по умолчанию
+            
+            # Создаем фильтры для всех месяцев в диапазоне
+            if start_month <= end_month:
+                # Обычный диапазон (например, март-май)
+                for month in range(start_month, end_month + 1):
+                    month_filter = f".{month:02d}"  # .01, .02, .03 и т.д.
+                    month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
+            else:
+                # Диапазон через год (например, ноябрь-февраль)
+                for month in range(start_month, 13):  # От start_month до декабря
+                    month_filter = f".{month:02d}"
+                    month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
+                for month in range(1, end_month + 1):  # От января до end_month
+                    month_filter = f".{month:02d}"
+                    month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
+            
+            # Применяем ИЛИ фильтр (любой из месяцев)
+            if month_filters:
+                from sqlalchemy import or_
+                query = query.filter(or_(*month_filters))
+                
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
-    
-    if end_date:
-        try:
-            # Аналогично для end_date
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            # Для простоты пока не фильтруем по end_date, так как формат DD.MM не содержит года
-            pass
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
     count = query.count()
     query.delete()
@@ -185,25 +206,46 @@ def delete_tickets_by_club_id(
     """Удаляет билеты для конкретного клуба с поддержкой диапазона дат"""
     query = db.query(Ticket).filter(Ticket.club_id == club_id)
     
-    # Фильтрация по датам для формата DD.MM в базе
-    if start_date:
+    # Фильтрация по датам для формата DD.MM в базе (учет диапазона месяцев)
+    if start_date or end_date:
         try:
-            # Конвертируем YYYY-MM-DD в DD.MM для сравнения
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            # Формат с ведущими нулями: ".01", ".02" и т.д.
-            month_filter = f".{start_dt.month:02d}"  # :02d добавляет ведущий ноль
-            query = query.filter(Ticket.event_date.like(f"%{month_filter}"))
+            month_filters = []
+            
+            # Определяем месяцы в диапазоне
+            if start_date:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                start_month = start_dt.month
+            else:
+                start_month = 1  # Январь по умолчанию
+                
+            if end_date:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                end_month = end_dt.month
+            else:
+                end_month = 12  # Декабрь по умолчанию
+            
+            # Создаем фильтры для всех месяцев в диапазоне
+            if start_month <= end_month:
+                # Обычный диапазон (например, март-май)
+                for month in range(start_month, end_month + 1):
+                    month_filter = f".{month:02d}"  # .01, .02, .03 и т.д.
+                    month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
+            else:
+                # Диапазон через год (например, ноябрь-февраль)
+                for month in range(start_month, 13):  # От start_month до декабря
+                    month_filter = f".{month:02d}"
+                    month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
+                for month in range(1, end_month + 1):  # От января до end_month
+                    month_filter = f".{month:02d}"
+                    month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
+            
+            # Применяем ИЛИ фильтр (любой из месяцев)
+            if month_filters:
+                from sqlalchemy import or_
+                query = query.filter(or_(*month_filters))
+                
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
-    
-    if end_date:
-        try:
-            # Аналогично для end_date
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-            # Для простоты пока не фильтруем по end_date
-            pass
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
     
     count = query.count()
     query.delete()
