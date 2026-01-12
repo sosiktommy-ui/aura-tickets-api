@@ -143,18 +143,18 @@ def delete_tickets_by_club(
     if club_id:
         query = query.filter(Ticket.club_id == club_id)
     
-    # Фильтрация по датам
+    # Фильтрация по датам (event_date - строка в формате YYYY-MM-DD)
     if start_date:
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-            query = query.filter(Ticket.event_date >= start_dt)
+            datetime.strptime(start_date, "%Y-%m-%d")  # Проверяем формат
+            query = query.filter(Ticket.event_date >= start_date)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
     
     if end_date:
         try:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-            query = query.filter(Ticket.event_date <= end_dt)
+            datetime.strptime(end_date, "%Y-%m-%d")  # Проверяем формат
+            query = query.filter(Ticket.event_date <= end_date)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
     
@@ -175,18 +175,18 @@ def delete_tickets_by_club_id(
     """Удаляет билеты для конкретного клуба с поддержкой диапазона дат"""
     query = db.query(Ticket).filter(Ticket.club_id == club_id)
     
-    # Фильтрация по датам
+    # Фильтрация по датам (event_date - строка в формате YYYY-MM-DD)
     if start_date:
         try:
-            start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-            query = query.filter(Ticket.event_date >= start_dt)
+            datetime.strptime(start_date, "%Y-%m-%d")  # Проверяем формат
+            query = query.filter(Ticket.event_date >= start_date)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
     
     if end_date:
         try:
-            end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-            query = query.filter(Ticket.event_date <= end_dt)
+            datetime.strptime(end_date, "%Y-%m-%d")  # Проверяем формат
+            query = query.filter(Ticket.event_date <= end_date)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid end_date format. Use YYYY-MM-DD")
     

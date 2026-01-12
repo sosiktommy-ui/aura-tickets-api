@@ -7,7 +7,7 @@ import os
 
 def run_migration():
     # Railway PostgreSQL подключение
-    DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://postgres:aura_admin_2024@viaduct.proxy.rlwy.net:46789/railway"
+    DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://postgres:nWDfNeMpeSAgjaWnxVVkYKOaKQGkJcnL@metro.proxy.rlwy.net:20356/railway"
     
     try:
         conn = psycopg2.connect(DATABASE_URL)
