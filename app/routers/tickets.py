@@ -138,52 +138,38 @@ def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
 @router.delete("/")
 def delete_tickets_by_club(
     club_id: int = None, 
-    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db)
 ):
-    """Удаляет билеты для конкретного клуба или все билеты с поддержкой диапазона дат"""
+    """Удаляет билеты для конкретного клуба или все билеты (фильтрация по датам временно отключена)"""
     query = db.query(Ticket)
     
     if club_id:
         query = query.filter(Ticket.club_id == club_id)
     
-    # ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: Пока игнорируем фильтрацию по датам из-за неправильного формата в базе
-    # TODO: Исправить формат дат в базе с DD.MM на YYYY-MM-DD
-    # if start_date:
-    #     ...фильтрация по датам отключена...
-    # if end_date:
-    #     ...фильтрация по датам отключена...
+    # ФИЛЬТРАЦИЯ ПО ДАТАМ ВРЕМЕННО ОТКЛЮЧЕНА из-за неправильного формата дат в базе
     
     count = query.count()
     query.delete()
     db.commit()
     
-    return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
+    return {"status": "deleted", "deleted": count, "club_id": club_id, "note": "Date filtering disabled due to DB format issue"}
 
 
 @router.delete("/club/{club_id}")
 def delete_tickets_by_club_id(
     club_id: int,
-    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     db: Session = Depends(get_db)
 ):
-    """Удаляет билеты для конкретного клуба с поддержкой диапазона дат"""
+    """Удаляет билеты для конкретного клуба (фильтрация по датам временно отключена)"""
     query = db.query(Ticket).filter(Ticket.club_id == club_id)
     
-    # ВРЕМЕННОЕ ИСПРАВЛЕНИЕ: Пока игнорируем фильтрацию по датам из-за неправильного формата в базе
-    # TODO: Исправить формат дат в базе с DD.MM на YYYY-MM-DD
-    # if start_date:
-    #     ...фильтрация по датам отключена...
-    # if end_date:
-    #     ...фильтрация по датам отключена...
+    # ФИЛЬТРАЦИЯ ПО ДАТАМ ВРЕМЕННО ОТКЛЮЧЕНА из-за неправильного формата дат в базе
     
     count = query.count()
     query.delete()
     db.commit()
     
-    return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
+    return {"status": "deleted", "deleted": count, "club_id": club_id, "note": "Date filtering disabled due to DB format issue"}
 
 
 @router.delete("/all")
