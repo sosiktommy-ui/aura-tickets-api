@@ -45,9 +45,9 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         qr_token=token,
         qr_signature=signature,
         status="valid",
-        city_name=ticket.city_name,  # IMPREZA
-        country_code=ticket.country_code,  # IMPREZA
-        club_id=ticket.club_id  # IMPREZA
+        city_name=ticket.city_name,
+        country_code=ticket.country_code,
+        club_id=ticket.club_id
     )
     
     db.add(db_ticket)
@@ -61,7 +61,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
 def get_tickets(
     event_date: str = None,
     status_filter: str = None,
-    club_id: int = None,  # IMPREZA: добавлен параметр
+    club_id: int = None,
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db)
@@ -74,19 +74,16 @@ def get_tickets(
     if status_filter:
         query = query.filter(Ticket.status == status_filter)
     
-    # IMPREZA: Фильтр по клубу
     if club_id:
         query = query.filter(Ticket.club_id == club_id)
     
     total = query.count()
     
-    # IMPREZA: Подсчет entered тоже фильтруем по club_id
     entered_query = db.query(Ticket).filter(Ticket.status == "used")
     if club_id:
         entered_query = entered_query.filter(Ticket.club_id == club_id)
     entered = entered_query.count()
     
-    # IMPREZA: Подсчет pending тоже фильтруем по club_id
     pending_query = db.query(Ticket).filter(Ticket.status == "valid")
     if club_id:
         pending_query = pending_query.filter(Ticket.club_id == club_id)
@@ -144,57 +141,52 @@ def delete_tickets_by_club(
     db: Session = Depends(get_db)
 ):
     """Удаляет билеты для конкретного клуба или все билеты с поддержкой диапазона дат"""
-    query = db.query(Ticket)
-    
-    if club_id:
-        query = query.filter(Ticket.club_id == club_id)
-    
-    # Фильтрация по датам для формата DD.MM в базе (учет диапазона месяцев)
-    if start_date or end_date:
-        try:
+    try:
+        query = db.query(Ticket)
+        
+        if club_id:
+            query = query.filter(Ticket.club_id == club_id)
+        
+        # Фильтрация по датам
+        if start_date or end_date:
             month_filters = []
             
-            # Определяем месяцы в диапазоне
             if start_date:
                 start_dt = datetime.strptime(start_date, "%Y-%m-%d")
                 start_month = start_dt.month
             else:
-                start_month = 1  # Январь по умолчанию
+                start_month = 1
                 
             if end_date:
                 end_dt = datetime.strptime(end_date, "%Y-%m-%d")
                 end_month = end_dt.month
             else:
-                end_month = 12  # Декабрь по умолчанию
+                end_month = 12
             
-            # Создаем фильтры для всех месяцев в диапазоне
             if start_month <= end_month:
-                # Обычный диапазон (например, март-май)
                 for month in range(start_month, end_month + 1):
-                    month_filter = f".{month:02d}"  # .01, .02, .03 и т.д.
+                    month_filter = f".{month:02d}"
                     month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
             else:
-                # Диапазон через год (например, ноябрь-февраль)
-                for month in range(start_month, 13):  # От start_month до декабря
+                for month in range(start_month, 13):
                     month_filter = f".{month:02d}"
                     month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
-                for month in range(1, end_month + 1):  # От января до end_month
+                for month in range(1, end_month + 1):
                     month_filter = f".{month:02d}"
                     month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
             
-            # Применяем ИЛИ фильтр (любой из месяцев)
             if month_filters:
-                from sqlalchemy import or_
                 query = query.filter(or_(*month_filters))
-                
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    
-    count = query.count()
-    query.delete()
-    db.commit()
-    
-    return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
+        
+        count = query.count()
+        query.delete(synchronize_session=False)
+        db.commit()
+        
+        return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Delete error: {str(e)}")
 
 
 @router.delete("/club/{club_id}")
@@ -205,61 +197,60 @@ def delete_tickets_by_club_id(
     db: Session = Depends(get_db)
 ):
     """Удаляет билеты для конкретного клуба с поддержкой диапазона дат"""
-    query = db.query(Ticket).filter(Ticket.club_id == club_id)
-    
-    # Фильтрация по датам для формата DD.MM в базе (учет диапазона месяцев)
-    if start_date or end_date:
-        try:
+    try:
+        query = db.query(Ticket).filter(Ticket.club_id == club_id)
+        
+        if start_date or end_date:
             month_filters = []
             
-            # Определяем месяцы в диапазоне
             if start_date:
                 start_dt = datetime.strptime(start_date, "%Y-%m-%d")
                 start_month = start_dt.month
             else:
-                start_month = 1  # Январь по умолчанию
+                start_month = 1
                 
             if end_date:
                 end_dt = datetime.strptime(end_date, "%Y-%m-%d")
                 end_month = end_dt.month
             else:
-                end_month = 12  # Декабрь по умолчанию
+                end_month = 12
             
-            # Создаем фильтры для всех месяцев в диапазоне
             if start_month <= end_month:
-                # Обычный диапазон (например, март-май)
                 for month in range(start_month, end_month + 1):
-                    month_filter = f".{month:02d}"  # .01, .02, .03 и т.д.
+                    month_filter = f".{month:02d}"
                     month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
             else:
-                # Диапазон через год (например, ноябрь-февраль)
-                for month in range(start_month, 13):  # От start_month до декабря
+                for month in range(start_month, 13):
                     month_filter = f".{month:02d}"
                     month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
-                for month in range(1, end_month + 1):  # От января до end_month
+                for month in range(1, end_month + 1):
                     month_filter = f".{month:02d}"
                     month_filters.append(Ticket.event_date.like(f"%{month_filter}"))
             
-            # Применяем ИЛИ фильтр (любой из месяцев)
             if month_filters:
-                from sqlalchemy import or_
                 query = query.filter(or_(*month_filters))
-                
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-    
-    count = query.count()
-    query.delete()
-    db.commit()
-    
-    return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
+        
+        count = query.count()
+        query.delete(synchronize_session=False)
+        db.commit()
+        
+        return {"status": "deleted", "deleted": count, "club_id": club_id, "start_date": start_date, "end_date": end_date}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Delete error: {str(e)}")
 
 
 @router.delete("/all")
 def delete_all_tickets(db: Session = Depends(get_db)):
     """Удаляет ВСЕ билеты из базы данных"""
-    count = db.query(Ticket).count()
-    db.query(Ticket).delete()
-    db.commit()
-    
-    return {"status": "deleted", "count": count, "message": f"Deleted {count} tickets"}
+    try:
+        count = db.query(Ticket).count()
+        db.query(Ticket).delete(synchronize_session=False)
+        db.commit()
+        
+        return {"status": "deleted", "count": count, "message": f"Deleted {count} tickets"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Delete error: {str(e)}")
