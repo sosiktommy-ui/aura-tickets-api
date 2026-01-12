@@ -153,9 +153,8 @@ def delete_tickets_by_club(
         try:
             # Конвертируем YYYY-MM-DD в DD.MM для сравнения
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            start_ddmm = f"{start_dt.day}.{start_dt.month}"  # Например: 2025-01-09 -> "9.1"
-            # Используем фильтрацию по дню и месяцу
-            month_filter = f".{start_dt.month}"
+            # Формат с ведущими нулями: ".01", ".02" и т.д.
+            month_filter = f".{start_dt.month:02d}"  # :02d добавляет ведущий ноль
             query = query.filter(Ticket.event_date.like(f"%{month_filter}"))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
@@ -191,8 +190,8 @@ def delete_tickets_by_club_id(
         try:
             # Конвертируем YYYY-MM-DD в DD.MM для сравнения
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            # Фильтруем по месяцу (так как в DD.MM нет года)
-            month_filter = f".{start_dt.month}"
+            # Формат с ведущими нулями: ".01", ".02" и т.д.
+            month_filter = f".{start_dt.month:02d}"  # :02d добавляет ведущий ноль
             query = query.filter(Ticket.event_date.like(f"%{month_filter}"))
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid start_date format. Use YYYY-MM-DD")
