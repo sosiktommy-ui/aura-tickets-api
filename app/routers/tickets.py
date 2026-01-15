@@ -115,24 +115,33 @@ def hide_tickets_from_managers(
     db: Session = Depends(get_db)
 ):
     """Скрыть билеты от менеджеров (visible_to_managers = false)"""
-    query = db.query(Ticket)
-    
-    # Фильтр по городу (club_id или city_name)
-    if club_id:
-        query = query.filter(Ticket.club_id == club_id)
-    elif city_name:
-        query = query.filter(Ticket.city_name == city_name)
-    
-    # Фильтр по датам
-    if start_date and end_date:
-        # Преобразуем YYYY-MM-DD в формат для сравнения с event_date (DD.MM.YYYY или DD.MM)
-        query = query.filter(Ticket.created_at >= start_date)
-        query = query.filter(Ticket.created_at <= end_date + " 23:59:59")
-    
-    updated_count = query.update({"visible_to_managers": False}, synchronize_session='fetch')
-    db.commit()
-    
-    return {"message": f"Скрыто {updated_count} билетов от менеджеров", "updated_count": updated_count}
+    try:
+        query = db.query(Ticket)
+        
+        # Фильтр по городу (club_id или city_name)
+        if club_id:
+            query = query.filter(Ticket.club_id == club_id)
+        elif city_name:
+            query = query.filter(Ticket.city_name == city_name)
+        
+        # Фильтр по датам (исправлено)
+        if start_date and end_date:
+            from datetime import datetime
+            # Преобразуем строки дат в правильный формат
+            start_datetime = f"{start_date} 00:00:00"
+            end_datetime = f"{end_date} 23:59:59"
+            query = query.filter(Ticket.created_at >= start_datetime)
+            query = query.filter(Ticket.created_at <= end_datetime)
+        
+        updated_count = query.update({"visible_to_managers": False}, synchronize_session='fetch')
+        db.commit()
+        
+        return {"message": f"Скрыто {updated_count} билетов от менеджеров", "updated_count": updated_count}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Ошибка скрытия: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка скрытия: {str(e)}")
 
 
 @router.delete("/delete-range")
@@ -144,23 +153,37 @@ def delete_tickets_range(
     db: Session = Depends(get_db)
 ):
     """Полностью удалить билеты из БД"""
-    query = db.query(Ticket)
-    
-    # Фильтр по городу
-    if club_id:
-        query = query.filter(Ticket.club_id == club_id)
-    elif city_name:
-        query = query.filter(Ticket.city_name == city_name)
-    
-    # Фильтр по датам
-    if start_date and end_date:
-        query = query.filter(Ticket.created_at >= start_date)
-        query = query.filter(Ticket.created_at <= end_date + " 23:59:59")
-    
-    deleted_count = query.delete(synchronize_session='fetch')
-    db.commit()
-    
-    return {"message": f"Удалено {deleted_count} билетов", "deleted_count": deleted_count}
+    try:
+        query = db.query(Ticket)
+        
+        # Фильтр по городу
+        if club_id:
+            query = query.filter(Ticket.club_id == club_id)
+        elif city_name:
+            query = query.filter(Ticket.city_name == city_name)
+        
+        # Фильтр по датам (исправлено)
+        if start_date and end_date:
+            from datetime import datetime
+            # Преобразуем строки дат в правильный формат
+            start_datetime = f"{start_date} 00:00:00"
+            end_datetime = f"{end_date} 23:59:59"
+            query = query.filter(Ticket.created_at >= start_datetime)
+            query = query.filter(Ticket.created_at <= end_datetime)
+        
+        # Подсчитываем перед удалением
+        deleted_count = query.count()
+        
+        # Удаляем
+        query.delete(synchronize_session='fetch')
+        db.commit()
+        
+        return {"message": f"Удалено {deleted_count} билетов", "deleted_count": deleted_count}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Ошибка удаления: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка удаления: {str(e)}")
 
 
 @router.get("/{order_id}", response_model=TicketResponse)
