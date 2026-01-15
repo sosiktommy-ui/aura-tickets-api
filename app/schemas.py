@@ -20,6 +20,7 @@ class TicketCreate(BaseModel):
     city_name: Optional[str] = None
     country_code: Optional[str] = None
     club_id: Optional[int] = None
+    visible_to_managers: Optional[bool] = True
 
 class TicketResponse(BaseModel):
     id: int
@@ -40,6 +41,7 @@ class TicketResponse(BaseModel):
     city_name: Optional[str]
     country_code: Optional[str]
     club_id: Optional[int]
+    visible_to_managers: Optional[bool]
     
     class Config:
         from_attributes = True

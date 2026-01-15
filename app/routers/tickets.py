@@ -47,7 +47,8 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         status="valid",
         city_name=ticket.city_name,
         country_code=ticket.country_code,
-        club_id=ticket.club_id
+        club_id=ticket.club_id,
+        visible_to_managers=ticket.visible_to_managers
     )
     
     db.add(db_ticket)
@@ -62,11 +63,16 @@ def get_tickets(
     event_date: str = None,
     status_filter: str = None,
     club_id: int = None,
+    show_all_for_admin: bool = False,
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db)
 ):
     query = db.query(Ticket)
+    
+    # БАГ FIX #2: Фильтрация по visible_to_managers
+    if not show_all_for_admin:
+        query = query.filter(Ticket.visible_to_managers == True)
     
     if event_date:
         query = query.filter(Ticket.event_date.like(f"%{event_date}%"))
@@ -98,6 +104,63 @@ def get_tickets(
         entered=entered,
         pending=pending
     )
+
+
+@router.put("/hide-from-managers")
+def hide_tickets_from_managers(
+    club_id: Optional[int] = None,
+    city_name: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Скрыть билеты от менеджеров (visible_to_managers = false)"""
+    query = db.query(Ticket)
+    
+    # Фильтр по городу (club_id или city_name)
+    if club_id:
+        query = query.filter(Ticket.club_id == club_id)
+    elif city_name:
+        query = query.filter(Ticket.city_name == city_name)
+    
+    # Фильтр по датам
+    if start_date and end_date:
+        # Преобразуем YYYY-MM-DD в формат для сравнения с event_date (DD.MM.YYYY или DD.MM)
+        query = query.filter(Ticket.created_at >= start_date)
+        query = query.filter(Ticket.created_at <= end_date + " 23:59:59")
+    
+    updated_count = query.update({"visible_to_managers": False}, synchronize_session='fetch')
+    db.commit()
+    
+    return {"message": f"Скрыто {updated_count} билетов от менеджеров", "updated_count": updated_count}
+
+
+@router.delete("/delete-range")
+def delete_tickets_range(
+    club_id: Optional[int] = None,
+    city_name: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Полностью удалить билеты из БД"""
+    query = db.query(Ticket)
+    
+    # Фильтр по городу
+    if club_id:
+        query = query.filter(Ticket.club_id == club_id)
+    elif city_name:
+        query = query.filter(Ticket.city_name == city_name)
+    
+    # Фильтр по датам
+    if start_date and end_date:
+        query = query.filter(Ticket.created_at >= start_date)
+        query = query.filter(Ticket.created_at <= end_date + " 23:59:59")
+    
+    deleted_count = query.delete(synchronize_session='fetch')
+    db.commit()
+    
+    return {"message": f"Удалено {deleted_count} билетов", "deleted_count": deleted_count}
 
 
 @router.get("/{order_id}", response_model=TicketResponse)

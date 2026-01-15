@@ -30,6 +30,9 @@ class Ticket(Base):
     city_name = Column(String(100), nullable=True, index=True)
     club_id = Column(Integer, nullable=True, index=True)
     
+    # БАГ FIX #2: Видимость для менеджеров
+    visible_to_managers = Column(Boolean, default=True, index=True)
+    
     status = Column(String(20), default="valid", index=True)
     scan_count = Column(Integer, default=0)
     first_scan_at = Column(DateTime)
