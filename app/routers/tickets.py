@@ -152,7 +152,7 @@ def delete_tickets_range(
     end_date: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Полностью удалить билеты из БД"""
+    """Полностью удалить билеты из БД (сначала scan_history, потом tickets)"""
     try:
         query = db.query(Ticket)
         
@@ -174,8 +174,16 @@ def delete_tickets_range(
         # Подсчитываем перед удалением
         deleted_count = query.count()
         
-        # Удаляем
-        query.delete(synchronize_session='fetch')
+        # Получаем ID билетов для удаления
+        ticket_ids = [t.id for t in query.all()]
+        
+        if ticket_ids:
+            # СНАЧАЛА удаляем связанные записи из scan_history (ForeignKey fix)
+            db.query(ScanHistory).filter(ScanHistory.ticket_id.in_(ticket_ids)).delete(synchronize_session='fetch')
+            
+            # ПОТОМ удаляем билеты
+            db.query(Ticket).filter(Ticket.id.in_(ticket_ids)).delete(synchronize_session='fetch')
+        
         db.commit()
         
         return {"message": f"Удалено {deleted_count} билетов", "deleted_count": deleted_count}
@@ -217,6 +225,47 @@ def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
     db.commit()
     
     return {"status": "cancelled", "order_id": order_id}
+
+
+@router.patch("/{order_id}/status")
+def change_ticket_status(order_id: str, data: dict, db: Session = Depends(get_db)):
+    """Изменить статус билета вручную (для менеджера/админа)
+    
+    Принимает: {"status": "valid" | "used" | "cancelled", "scan_count": int (опционально)}
+    """
+    ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
+    
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {order_id} not found")
+    
+    new_status = data.get("status")
+    if new_status not in ["valid", "used", "cancelled"]:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be: valid, used, or cancelled")
+    
+    old_status = ticket.status
+    ticket.status = new_status
+    
+    # Если переводим в used - установить scan_count = 1
+    if new_status == "used" and ticket.scan_count == 0:
+        ticket.scan_count = 1
+    
+    # Если переводим в valid - сбросить scan_count
+    if new_status == "valid":
+        ticket.scan_count = 0
+    
+    # Если передан scan_count - использовать его
+    if "scan_count" in data:
+        ticket.scan_count = data["scan_count"]
+    
+    db.commit()
+    
+    return {
+        "success": True,
+        "order_id": order_id,
+        "old_status": old_status,
+        "new_status": new_status,
+        "scan_count": ticket.scan_count
+    }
 
 
 @router.delete("/")
