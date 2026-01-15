@@ -32,6 +32,7 @@ class TicketResponse(BaseModel):
     event_date: Optional[str]
     event_name: Optional[str]
     price: float
+    promocode: Optional[str]  # ДОБАВЛЕНО: промокод
     status: str
     scan_count: int
     first_scan_at: Optional[datetime]
