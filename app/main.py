@@ -66,8 +66,29 @@ app.include_router(clubs.router)  # IMPREZA: подключен роутер clu
 async def startup():
     try:
         from app.database import engine, Base
+        import sqlalchemy
+        
+        # Создаём таблицы если не существуют
         Base.metadata.create_all(bind=engine)
-        print("✅ Database tables created")
+        print("✅ Database tables created/verified")
+        
+        # Автомиграция: добавляем колонку visible_to_managers если её нет
+        with engine.connect() as conn:
+            # Проверяем есть ли колонка
+            result = conn.execute(sqlalchemy.text("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = 'tickets' AND column_name = 'visible_to_managers'
+            """))
+            if not result.fetchone():
+                # Колонки нет - добавляем
+                conn.execute(sqlalchemy.text("""
+                    ALTER TABLE tickets ADD COLUMN visible_to_managers BOOLEAN DEFAULT TRUE
+                """))
+                conn.commit()
+                print("✅ Added column: visible_to_managers")
+            else:
+                print("✅ Column visible_to_managers already exists")
+                
     except Exception as e:
         print(f"⚠️ DB init error: {e}")
 
