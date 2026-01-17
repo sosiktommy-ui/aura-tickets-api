@@ -158,3 +158,119 @@ def hide_for_city_manager(
         "end_date": date_range.end_date,
         "scope": "city_manager"
     }
+
+
+# === ВОССТАНОВЛЕНИЕ СКРЫТЫХ ЗАПИСЕЙ ===
+
+@router.post("/restore-hidden")
+def restore_all_hidden(
+    db: Session = Depends(get_db)
+):
+    """Восстанавливает ВСЕ скрытые записи (делает видимыми для менеджеров)"""
+    query = db.query(ScanHistory).filter(
+        ScanHistory.hidden_for_manager == True
+    )
+    
+    count = query.count()
+    if count == 0:
+        return {
+            "status": "no_changes",
+            "restored": 0,
+            "message": "Нет скрытых записей для восстановления"
+        }
+    
+    query.update({"hidden_for_manager": False})
+    db.commit()
+    
+    return {
+        "status": "restored",
+        "restored": count,
+        "scope": "all"
+    }
+
+
+@router.post("/restore-hidden/{club_id}")
+def restore_hidden_by_city(
+    club_id: int,
+    db: Session = Depends(get_db)
+):
+    """Восстанавливает скрытые записи для конкретного города"""
+    query = db.query(ScanHistory).filter(
+        ScanHistory.club_id == club_id,
+        ScanHistory.hidden_for_manager == True
+    )
+    
+    count = query.count()
+    if count == 0:
+        return {
+            "status": "no_changes",
+            "restored": 0,
+            "club_id": club_id,
+            "message": f"Нет скрытых записей для club_id={club_id}"
+        }
+    
+    query.update({"hidden_for_manager": False})
+    db.commit()
+    
+    return {
+        "status": "restored",
+        "restored": count,
+        "club_id": club_id,
+        "scope": "city"
+    }
+
+
+class RestoreDateRange(BaseModel):
+    start_date: str = None  # YYYY-MM-DD (опционально)
+    end_date: str = None    # YYYY-MM-DD (опционально)
+    club_id: int = None     # опционально
+
+
+@router.post("/restore-hidden-filtered")
+def restore_hidden_filtered(
+    filters: RestoreDateRange,
+    db: Session = Depends(get_db)
+):
+    """Восстанавливает скрытые записи с фильтрами по дате и городу"""
+    query = db.query(ScanHistory).filter(
+        ScanHistory.hidden_for_manager == True
+    )
+    
+    # Применяем фильтры
+    if filters.club_id:
+        query = query.filter(ScanHistory.club_id == filters.club_id)
+    
+    if filters.start_date:
+        try:
+            start_dt = datetime.strptime(filters.start_date, "%Y-%m-%d").date()
+            query = query.filter(ScanHistory.scan_time >= start_dt)
+        except ValueError:
+            pass
+    
+    if filters.end_date:
+        try:
+            end_dt = datetime.strptime(filters.end_date, "%Y-%m-%d").date()
+            query = query.filter(ScanHistory.scan_time <= datetime.combine(end_dt, datetime.max.time()))
+        except ValueError:
+            pass
+    
+    count = query.count()
+    if count == 0:
+        return {
+            "status": "no_changes",
+            "restored": 0,
+            "message": "Нет скрытых записей с указанными фильтрами"
+        }
+    
+    query.update({"hidden_for_manager": False})
+    db.commit()
+    
+    return {
+        "status": "restored",
+        "restored": count,
+        "filters": {
+            "club_id": filters.club_id,
+            "start_date": filters.start_date,
+            "end_date": filters.end_date
+        }
+    }
