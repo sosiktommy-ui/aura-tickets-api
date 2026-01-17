@@ -144,6 +144,34 @@ def hide_tickets_from_managers(
         raise HTTPException(status_code=500, detail=f"Ошибка скрытия: {str(e)}")
 
 
+@router.put("/show-to-managers")
+def show_tickets_to_managers(
+    club_id: Optional[int] = None,
+    city_name: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Восстановить скрытые билеты (visible_to_managers = true)"""
+    try:
+        query = db.query(Ticket).filter(Ticket.visible_to_managers == False)
+        
+        # Фильтр по городу (club_id или city_name)
+        if club_id:
+            query = query.filter(Ticket.club_id == club_id)
+        elif city_name:
+            query = query.filter(Ticket.city_name == city_name)
+        
+        updated_count = query.update({"visible_to_managers": True}, synchronize_session='fetch')
+        db.commit()
+        
+        print(f"✅ Восстановлено {updated_count} билетов для менеджеров")
+        return {"message": f"Восстановлено {updated_count} билетов", "updated_count": updated_count}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Ошибка восстановления: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка восстановления: {str(e)}")
+
+
 @router.delete("/delete-range")
 def delete_tickets_range(
     club_id: Optional[int] = None,
