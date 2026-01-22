@@ -505,7 +505,7 @@ def delete_tickets_by_event(event_name: str = Query(..., description="Назва
         
         print(f"🗑️ Попытка удаления билетов для event: '{event_name}'")
         
-        # Сначала проверяем, сколько билетов найдено
+        # Сначала находим все билеты для удаления
         tickets_to_delete = db.query(Ticket).filter(Ticket.event_name == event_name).all()
         count_before = len(tickets_to_delete)
         
@@ -515,13 +515,31 @@ def delete_tickets_by_event(event_name: str = Query(..., description="Назва
             print(f"⚠️ Билетов не найдено для event: '{event_name}'")
             return {"deleted_count": 0, "event_name": event_name, "message": "No tickets found"}
         
-        # Удаляем билеты
-        result = db.query(Ticket).filter(Ticket.event_name == event_name).delete()
+        # Получаем ID всех билетов для удаления
+        ticket_ids = [ticket.id for ticket in tickets_to_delete]
+        
+        print(f"🔗 ID билетов для удаления: {ticket_ids}")
+        
+        # Сначала удаляем все связанные записи из scan_history
+        scan_history_deleted = db.query(ScanHistory).filter(ScanHistory.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
+        
+        print(f"🗑️ Удалено записей из scan_history: {scan_history_deleted}")
+        
+        # Теперь можно безопасно удалить билеты
+        tickets_deleted = db.query(Ticket).filter(Ticket.event_name == event_name).delete(synchronize_session=False)
+        
+        # Подтверждаем транзакцию
         db.commit()
         
-        print(f"✅ Удалено билетов: {result}")
+        print(f"✅ Удалено билетов: {tickets_deleted}")
+        print(f"✅ Общий результат: scan_history={scan_history_deleted}, tickets={tickets_deleted}")
         
-        return {"deleted_count": result, "event_name": event_name}
+        return {
+            "deleted_count": tickets_deleted, 
+            "event_name": event_name,
+            "scan_history_deleted": scan_history_deleted,
+            "message": f"Deleted {tickets_deleted} tickets and {scan_history_deleted} scan history records"
+        }
         
     except Exception as e:
         db.rollback()
