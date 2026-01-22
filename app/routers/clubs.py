@@ -47,6 +47,46 @@ def get_all_clubs():
         db.close()
 
 
+@router.get("/{club_id}")
+def get_club_by_id(club_id: int):
+    """Получить информацию о конкретном клубе по ID"""
+    db = next(get_db())
+    
+    try:
+        query = text("""
+            SELECT 
+                c.club_id as id,
+                c.city_name,
+                c.city_english,
+                co.country_code,
+                c.login,
+                c.password_hash,
+                c.is_active
+            FROM clubs c
+            JOIN countries co ON c.country_id = co.country_id
+            WHERE c.club_id = :club_id
+        """)
+        
+        result = db.execute(query, {"club_id": club_id})
+        row = result.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Club not found")
+        
+        return {
+            "id": row[0],
+            "city_name": row[1], 
+            "city_english": row[2],
+            "country_code": row[3],
+            "login": row[4],
+            "password": row[5],  # Возвращаем как "password" для совместимости
+            "is_active": row[6]
+        }
+    
+    finally:
+        db.close()
+
+
 @router.put("/{club_id}/password")
 def update_club_password(club_id: int, data: dict):
     """Обновить пароль клуба (только для админа)"""
