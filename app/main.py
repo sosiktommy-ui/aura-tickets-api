@@ -75,7 +75,7 @@ async def startup():
         
         # Автомиграция: добавляем колонку visible_to_managers если её нет
         with engine.connect() as conn:
-            # Проверяем есть ли колонка
+            # Проверяем есть ли колонка visible_to_managers
             result = conn.execute(sqlalchemy.text("""
                 SELECT column_name FROM information_schema.columns 
                 WHERE table_name = 'tickets' AND column_name = 'visible_to_managers'
@@ -89,6 +89,20 @@ async def startup():
                 print("✅ Added column: visible_to_managers")
             else:
                 print("✅ Column visible_to_managers already exists")
+            
+            # QUANTITY: Добавляем колонку quantity если её нет
+            result = conn.execute(sqlalchemy.text("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name = 'tickets' AND column_name = 'quantity'
+            """))
+            if not result.fetchone():
+                conn.execute(sqlalchemy.text("""
+                    ALTER TABLE tickets ADD COLUMN quantity INTEGER DEFAULT 1
+                """))
+                conn.commit()
+                print("✅ Added column: quantity")
+            else:
+                print("✅ Column quantity already exists")
                 
     except Exception as e:
         print(f"⚠️ DB init error: {e}")
