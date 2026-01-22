@@ -445,19 +445,20 @@ def fix_club_ids(db: Session = Depends(get_db)):
     """Исправляет club_id для всех билетов на основе city_name.
     Маппинг city_name (английское название) → club_id из таблицы clubs.
     """
-    from app.models import Club
+    from sqlalchemy import text
     
     try:
-        # Загружаем все клубы
-        clubs = db.query(Club).all()
+        # Загружаем все клубы через raw SQL
+        result = db.execute(text("SELECT club_id, city_english FROM clubs WHERE is_active = true"))
         
         # Создаём маппинг city_english -> club_id
         city_to_club_id = {}
-        for club in clubs:
-            if club.city_english:
-                city_to_club_id[club.city_english.lower()] = club.id
+        for row in result:
+            if row[1]:  # city_english
+                city_to_club_id[row[1].lower()] = row[0]  # club_id
         
         print(f"📋 Загружено {len(city_to_club_id)} клубов для маппинга")
+        print(f"📋 Маппинг: {city_to_club_id}")
         
         # Находим билеты с club_id = NULL
         tickets_to_fix = db.query(Ticket).filter(Ticket.club_id == None).all()
@@ -472,6 +473,7 @@ def fix_club_ids(db: Session = Depends(get_db)):
                 if club_id:
                     ticket.club_id = club_id
                     updated_count += 1
+                    print(f"✅ Билет {ticket.id}: {city_name} -> club_id={club_id}")
                 else:
                     not_found_cities.add(city_name)
         
@@ -488,4 +490,6 @@ def fix_club_ids(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         print(f"❌ Ошибка: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Fix club_ids error: {str(e)}")
