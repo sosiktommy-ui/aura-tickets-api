@@ -493,3 +493,17 @@ def fix_club_ids(db: Session = Depends(get_db)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Fix club_ids error: {str(e)}")
+
+
+@router.delete("/by-event")
+def delete_tickets_by_event(event_name: str = Query(..., description="Название мероприятия"), db: Session = Depends(get_db)):
+    """Удалить все билеты по event_name"""
+    
+    if not event_name:
+        raise HTTPException(status_code=400, detail="event_name is required")
+    
+    # Удаляем билеты
+    result = db.query(Ticket).filter(Ticket.event_name == event_name).delete()
+    db.commit()
+    
+    return {"deleted_count": result, "event_name": event_name}
