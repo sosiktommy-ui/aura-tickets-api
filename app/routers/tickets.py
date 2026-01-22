@@ -438,3 +438,54 @@ def delete_all_tickets(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Delete error: {str(e)}")
+
+
+@router.put("/fix-club-ids")
+def fix_club_ids(db: Session = Depends(get_db)):
+    """Исправляет club_id для всех билетов на основе city_name.
+    Маппинг city_name (английское название) → club_id из таблицы clubs.
+    """
+    from app.models import Club
+    
+    try:
+        # Загружаем все клубы
+        clubs = db.query(Club).all()
+        
+        # Создаём маппинг city_english -> club_id
+        city_to_club_id = {}
+        for club in clubs:
+            if club.city_english:
+                city_to_club_id[club.city_english.lower()] = club.id
+        
+        print(f"📋 Загружено {len(city_to_club_id)} клубов для маппинга")
+        
+        # Находим билеты с club_id = NULL
+        tickets_to_fix = db.query(Ticket).filter(Ticket.club_id == None).all()
+        
+        updated_count = 0
+        not_found_cities = set()
+        
+        for ticket in tickets_to_fix:
+            city_name = ticket.city_name
+            if city_name:
+                club_id = city_to_club_id.get(city_name.lower())
+                if club_id:
+                    ticket.club_id = club_id
+                    updated_count += 1
+                else:
+                    not_found_cities.add(city_name)
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "updated_count": updated_count,
+            "total_with_null": len(tickets_to_fix),
+            "not_found_cities": list(not_found_cities),
+            "clubs_mapping": city_to_club_id
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Ошибка: {e}")
+        raise HTTPException(status_code=500, detail=f"Fix club_ids error: {str(e)}")

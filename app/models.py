@@ -66,3 +66,16 @@ class ScanHistory(Base):
     notes = Column(Text)
     
     ticket = relationship("Ticket", back_populates="scan_history")
+
+
+class Club(Base):
+    """Модель клуба/города для IMPREZA"""
+    __tablename__ = "clubs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    city_name = Column(String(100), nullable=False)  # Русское название
+    city_english = Column(String(100), nullable=False)  # Английское название
+    country_code = Column(String(10), nullable=False)
+    login = Column(String(50), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    is_active = Column(Boolean, default=True)
