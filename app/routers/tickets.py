@@ -39,6 +39,7 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         event_date=ticket.event_date,
         event_name=ticket.event_name,
         price=ticket.price,
+        subtotal=ticket.subtotal,
         discount=ticket.discount,
         payment_amount=ticket.payment_amount,
         promocode=ticket.promocode,

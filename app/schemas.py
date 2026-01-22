@@ -12,6 +12,7 @@ class TicketCreate(BaseModel):
     event_date: Optional[str] = None
     event_name: Optional[str] = None
     price: Optional[float] = 0
+    subtotal: Optional[float] = 0  # Оригинальная цена ДО скидки
     discount: Optional[float] = 0
     payment_amount: Optional[float] = 0
     promocode: Optional[str] = None
@@ -32,6 +33,7 @@ class TicketResponse(BaseModel):
     event_date: Optional[str]
     event_name: Optional[str]
     price: float
+    subtotal: Optional[float]  # Оригинальная цена ДО скидки
     promocode: Optional[str]  # ДОБАВЛЕНО: промокод
     status: str
     scan_count: int

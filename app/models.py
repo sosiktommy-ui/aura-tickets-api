@@ -18,6 +18,7 @@ class Ticket(Base):
     event_date = Column(String(20))
     event_name = Column(String(200))
     price = Column(Float, default=0)
+    subtotal = Column(Float, default=0)  # Оригинальная цена ДО скидки
     discount = Column(Float, default=0)
     payment_amount = Column(Float, default=0)
     promocode = Column(String(50))

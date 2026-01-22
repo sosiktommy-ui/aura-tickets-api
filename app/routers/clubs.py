@@ -43,6 +43,41 @@ def migrate_plain_password():
         db.close()
 
 
+@router.get("/migrate-subtotal")
+def migrate_subtotal():
+    """Добавить колонку subtotal в таблицу tickets (одноразовая миграция)"""
+    db = next(get_db())
+    
+    try:
+        # Проверяем, существует ли уже колонка
+        check_query = text("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'tickets' AND column_name = 'subtotal'
+        """)
+        result = db.execute(check_query)
+        
+        if result.fetchone():
+            return {"status": "exists", "message": "Колонка subtotal уже существует"}
+        
+        # Добавляем колонку
+        alter_query = text("""
+            ALTER TABLE tickets 
+            ADD COLUMN subtotal FLOAT DEFAULT 0
+        """)
+        db.execute(alter_query)
+        db.commit()
+        
+        return {"status": "success", "message": "Колонка subtotal добавлена"}
+        
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    
+    finally:
+        db.close()
+
+
 @router.get("/")
 def get_all_clubs():
     """Получить список всех клубов для админ панели"""
