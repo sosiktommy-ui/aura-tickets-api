@@ -49,7 +49,8 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
         city_name=ticket.city_name,
         country_code=ticket.country_code,
         club_id=ticket.club_id,
-        visible_to_managers=ticket.visible_to_managers
+        visible_to_managers=ticket.visible_to_managers,
+        quantity=ticket.quantity  # Количество персон на билете
     )
     
     db.add(db_ticket)

@@ -22,6 +22,7 @@ class TicketCreate(BaseModel):
     country_code: Optional[str] = None
     club_id: Optional[int] = None
     visible_to_managers: Optional[bool] = True
+    quantity: Optional[int] = 1  # Количество персон на билете
 
 class TicketResponse(BaseModel):
     id: int
@@ -45,6 +46,7 @@ class TicketResponse(BaseModel):
     country_code: Optional[str]
     club_id: Optional[int]
     visible_to_managers: Optional[bool]
+    quantity: Optional[int] = 1  # Количество персон на билете
     
     class Config:
         from_attributes = True
