@@ -34,6 +34,9 @@ class Ticket(Base):
     # БАГ FIX #2: Видимость для менеджеров
     visible_to_managers = Column(Boolean, default=True, index=True)
     
+    # QUANTITY + EXPIRY: Билеты на несколько человек
+    quantity = Column(Integer, default=1)  # Количество человек на билет (1 = обычный билет)
+    
     status = Column(String(20), default="valid", index=True)
     scan_count = Column(Integer, default=0)
     first_scan_at = Column(DateTime)

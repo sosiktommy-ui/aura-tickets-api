@@ -9,6 +9,9 @@ from app.security import parse_qr_data, verify_signature_from_qr
 
 router = APIRouter(prefix="/api", tags=["verify"])
 
+# QUANTITY + EXPIRY: Время жизни билета после первого сканирования
+TICKET_EXPIRY_HOURS = 10
+
 @router.post("/verify", response_model=VerifyResponse)
 def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     
@@ -79,28 +82,90 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
         
         log_scan(db, ticket.id, ticket.order_id, "duplicate", request.scanner_id, notes=None, club_id=ticket.club_id)
         
+        quantity = ticket.quantity or 1
         return VerifyResponse(
             status="used",
-            message="Ticket already used",
+            message=f"Билет использован ({ticket.scan_count}/{quantity})",
             data=ticket_to_dict(ticket),
             used_at=ticket.first_scan_at.strftime("%H:%M:%S") if ticket.first_scan_at else None
         )
     
-    # 5. Первый вход
-    ticket.status = "used"
-    ticket.scan_count = 1
-    ticket.first_scan_at = datetime.now()
-    ticket.last_scan_at = datetime.now()
-    ticket.scanned_by = request.scanner_id
-    db.commit()
+    # QUANTITY + EXPIRY: Проверка истечения срока билета
+    if ticket.first_scan_at:
+        hours_passed = (datetime.now() - ticket.first_scan_at).total_seconds() / 3600
+        if hours_passed > TICKET_EXPIRY_HOURS:
+            ticket.scan_count += 1
+            ticket.last_scan_at = datetime.now()
+            db.commit()
+            
+            log_scan(db, ticket.id, ticket.order_id, "expired", request.scanner_id, 
+                    notes=f"Expired after {hours_passed:.1f}h", club_id=ticket.club_id)
+            
+            return VerifyResponse(
+                status="expired",
+                message=f"Билет просрочен (прошло {hours_passed:.1f} ч.)",
+                data=ticket_to_dict(ticket),
+                used_at=ticket.first_scan_at.strftime("%H:%M:%S") if ticket.first_scan_at else None
+            )
     
-    log_scan(db, ticket.id, ticket.order_id, "valid", request.scanner_id, notes=None, club_id=ticket.club_id)
+    # QUANTITY: Логика для билетов на несколько человек
+    quantity = ticket.quantity or 1
+    scan_count = ticket.scan_count or 0
     
-    return VerifyResponse(
-        status="valid",
-        message="Access granted",
-        data=ticket_to_dict(ticket)
-    )
+    if scan_count < quantity:
+        # Ещё есть входы — разрешить
+        ticket.scan_count = scan_count + 1
+        ticket.last_scan_at = datetime.now()
+        
+        if ticket.scan_count == 1:
+            ticket.first_scan_at = datetime.now()
+        
+        # Статус "used" только когда все входы использованы
+        if ticket.scan_count >= quantity:
+            ticket.status = "used"
+        
+        ticket.scanned_by = request.scanner_id
+        db.commit()
+        
+        remaining = max(0, quantity - ticket.scan_count)
+        
+        if quantity > 1:
+            message = f"Вход {ticket.scan_count} из {quantity}"
+        else:
+            message = "Access granted"
+        
+        log_scan(db, ticket.id, ticket.order_id, "valid", request.scanner_id, 
+                notes=f"Entry {ticket.scan_count}/{quantity}", club_id=ticket.club_id)
+        
+        response_data = ticket_to_dict(ticket)
+        response_data["quantity"] = quantity
+        response_data["remaining_entries"] = remaining
+        
+        # Рассчитываем время до истечения
+        if ticket.first_scan_at:
+            hours_passed = (datetime.now() - ticket.first_scan_at).total_seconds() / 3600
+            response_data["hours_until_expiry"] = max(0, TICKET_EXPIRY_HOURS - hours_passed)
+        
+        return VerifyResponse(
+            status="valid",
+            message=message,
+            data=response_data
+        )
+    else:
+        # Все входы использованы
+        ticket.scan_count += 1
+        ticket.last_scan_at = datetime.now()
+        db.commit()
+        
+        log_scan(db, ticket.id, ticket.order_id, "duplicate", request.scanner_id, 
+                notes=f"All entries used ({scan_count}/{quantity})", club_id=ticket.club_id)
+        
+        return VerifyResponse(
+            status="used",
+            message=f"Все входы использованы ({scan_count}/{quantity})",
+            data=ticket_to_dict(ticket),
+            used_at=ticket.first_scan_at.strftime("%H:%M:%S") if ticket.first_scan_at else None
+        )
 
 
 def ticket_to_dict(ticket: Ticket) -> dict:
@@ -112,7 +177,9 @@ def ticket_to_dict(ticket: Ticket) -> dict:
         "ticket_type": ticket.ticket_type,
         "event_date": ticket.event_date,
         "price": ticket.price,
-        "scan_count": ticket.scan_count
+        "scan_count": ticket.scan_count,
+        "quantity": ticket.quantity or 1,
+        "first_scan_at": ticket.first_scan_at.isoformat() if ticket.first_scan_at else None
     }
 
 
