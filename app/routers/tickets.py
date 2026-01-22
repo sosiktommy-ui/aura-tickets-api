@@ -499,11 +499,33 @@ def fix_club_ids(db: Session = Depends(get_db)):
 def delete_tickets_by_event(event_name: str = Query(..., description="Название мероприятия"), db: Session = Depends(get_db)):
     """Удалить все билеты по event_name"""
     
-    if not event_name:
-        raise HTTPException(status_code=400, detail="event_name is required")
-    
-    # Удаляем билеты
-    result = db.query(Ticket).filter(Ticket.event_name == event_name).delete()
-    db.commit()
-    
-    return {"deleted_count": result, "event_name": event_name}
+    try:
+        if not event_name:
+            raise HTTPException(status_code=400, detail="event_name is required")
+        
+        print(f"🗑️ Попытка удаления билетов для event: '{event_name}'")
+        
+        # Сначала проверяем, сколько билетов найдено
+        tickets_to_delete = db.query(Ticket).filter(Ticket.event_name == event_name).all()
+        count_before = len(tickets_to_delete)
+        
+        print(f"📊 Найдено билетов для удаления: {count_before}")
+        
+        if count_before == 0:
+            print(f"⚠️ Билетов не найдено для event: '{event_name}'")
+            return {"deleted_count": 0, "event_name": event_name, "message": "No tickets found"}
+        
+        # Удаляем билеты
+        result = db.query(Ticket).filter(Ticket.event_name == event_name).delete()
+        db.commit()
+        
+        print(f"✅ Удалено билетов: {result}")
+        
+        return {"deleted_count": result, "event_name": event_name}
+        
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Ошибка при удалении билетов: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Delete by event error: {str(e)}")
