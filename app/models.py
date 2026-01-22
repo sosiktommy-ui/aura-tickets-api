@@ -78,4 +78,5 @@ class Club(Base):
     city_english = Column(String(100), nullable=False)  # Английское название
     login = Column(String(50), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
+    plain_password = Column(String(255), nullable=True)  # Plain-text пароль для показа в админке
     is_active = Column(Boolean, default=True)

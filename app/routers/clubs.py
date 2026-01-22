@@ -7,6 +7,42 @@ from app.database import get_db
 
 router = APIRouter(prefix="/clubs", tags=["clubs"])
 
+
+@router.get("/migrate-plain-password")
+def migrate_plain_password():
+    """Добавить колонку plain_password в таблицу clubs (одноразовая миграция)"""
+    db = next(get_db())
+    
+    try:
+        # Проверяем, существует ли уже колонка
+        check_query = text("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'clubs' AND column_name = 'plain_password'
+        """)
+        result = db.execute(check_query)
+        
+        if result.fetchone():
+            return {"status": "exists", "message": "Колонка plain_password уже существует"}
+        
+        # Добавляем колонку
+        alter_query = text("""
+            ALTER TABLE clubs 
+            ADD COLUMN plain_password VARCHAR(255)
+        """)
+        db.execute(alter_query)
+        db.commit()
+        
+        return {"status": "success", "message": "Колонка plain_password добавлена"}
+        
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    
+    finally:
+        db.close()
+
+
 @router.get("/")
 def get_all_clubs():
     """Получить список всех клубов для админ панели"""
@@ -21,7 +57,8 @@ def get_all_clubs():
                 co.country_code,
                 c.login,
                 c.password_hash,
-                c.is_active
+                c.is_active,
+                c.plain_password
             FROM clubs c
             JOIN countries co ON c.country_id = co.country_id
             ORDER BY co.country_code, c.city_name
@@ -38,7 +75,8 @@ def get_all_clubs():
                 "country_code": row[3],
                 "login": row[4],
                 "password_hash": row[5],
-                "is_active": row[6]
+                "is_active": row[6],
+                "plain_password": row[7]
             })
         
         return {"clubs": clubs}
@@ -94,16 +132,22 @@ def update_club_password(club_id: int, data: dict):
     
     try:
         password_hash = data.get("password_hash")
+        plain_password = data.get("plain_password")  # Получаем plain-text пароль
         if not password_hash:
             raise HTTPException(status_code=400, detail="password_hash required")
         
         query = text("""
             UPDATE clubs 
-            SET password_hash = :password_hash 
+            SET password_hash = :password_hash,
+                plain_password = :plain_password
             WHERE club_id = :club_id
         """)
         
-        db.execute(query, {"password_hash": password_hash, "club_id": club_id})
+        db.execute(query, {
+            "password_hash": password_hash, 
+            "plain_password": plain_password,
+            "club_id": club_id
+        })
         db.commit()
         
         return {"success": True, "message": "Password updated"}
