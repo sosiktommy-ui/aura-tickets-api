@@ -47,6 +47,22 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
             data=qr_data
         )
     
+    # Проверка: если билет скрыт от менеджеров — он "удалён" для сканера
+    if ticket.visible_to_managers == False:
+        log_scan(db, ticket.id, ticket.order_id, "invalid", request.scanner_id, "Hidden from managers", club_id=ticket.club_id)
+        return VerifyResponse(
+            status="invalid",
+            message="Билет удалён",
+            data={
+                "order_id": ticket.order_id,
+                "name": ticket.customer_name,
+                "ticket_type": ticket.ticket_type,
+                "email": ticket.customer_email,
+                "phone": ticket.customer_phone,
+                "price": ticket.price
+            }
+        )
+    
     # 4. Проверяем статус
     if ticket.status == "cancelled":
         log_scan(db, ticket.id, ticket.order_id, "invalid", request.scanner_id, "Cancelled", club_id=ticket.club_id)
