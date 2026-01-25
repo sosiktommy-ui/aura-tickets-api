@@ -66,7 +66,7 @@ def get_tickets(
     status_filter: str = None,
     club_id: int = None,
     show_all_for_admin: bool = False,
-    limit: int = 100,
+    limit: int = 10000000,
     offset: int = 0,
     db: Session = Depends(get_db)
 ):
