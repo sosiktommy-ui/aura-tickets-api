@@ -298,6 +298,24 @@ def change_ticket_status(order_id: str, data: dict, db: Session = Depends(get_db
     }
 
 
+@router.put("/{order_id}/hide")
+def hide_ticket(order_id: str, db: Session = Depends(get_db)):
+    """Скрыть билет от менеджера (visible_to_managers = false)"""
+    ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
+    
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {order_id} not found")
+    
+    ticket.visible_to_managers = False
+    db.commit()
+    
+    return {
+        "success": True,
+        "order_id": order_id,
+        "message": "Ticket hidden from managers"
+    }
+
+
 @router.delete("/")
 def delete_tickets_by_club(
     club_id: int = None, 
