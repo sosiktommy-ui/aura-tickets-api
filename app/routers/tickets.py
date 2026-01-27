@@ -316,6 +316,28 @@ def hide_ticket(order_id: str, db: Session = Depends(get_db)):
     }
 
 
+@router.patch("/{order_id}/reset-expiration")
+def reset_ticket_expiration(order_id: str, db: Session = Depends(get_db)):
+    """Сбросить истечение билета - обновить first_scan_at на текущее время"""
+    ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
+    
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {order_id} not found")
+    
+    # Обновляем first_scan_at на текущее время
+    from datetime import datetime
+    new_time = datetime.now()
+    ticket.first_scan_at = new_time
+    db.commit()
+    
+    return {
+        "success": True,
+        "order_id": order_id,
+        "message": f"Expiration reset for {order_id}",
+        "new_first_scan_at": new_time.isoformat()
+    }
+
+
 @router.delete("/")
 def delete_tickets_by_club(
     club_id: int = None, 
