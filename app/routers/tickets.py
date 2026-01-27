@@ -112,6 +112,7 @@ def get_tickets(
 def hide_tickets_from_managers(
     club_id: Optional[int] = None,
     city_name: Optional[str] = None,
+    event_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: Session = Depends(get_db)
@@ -125,6 +126,10 @@ def hide_tickets_from_managers(
             query = query.filter(Ticket.club_id == club_id)
         elif city_name:
             query = query.filter(Ticket.city_name == city_name)
+        
+        # Фильтр по мероприятию
+        if event_name:
+            query = query.filter(Ticket.event_name == event_name)
         
         # Фильтр по датам (исправлено)
         if start_date and end_date:
@@ -178,6 +183,7 @@ def show_tickets_to_managers(
 def delete_tickets_range(
     club_id: Optional[int] = None,
     city_name: Optional[str] = None,
+    event_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     db: Session = Depends(get_db)
@@ -191,6 +197,10 @@ def delete_tickets_range(
             query = query.filter(Ticket.club_id == club_id)
         elif city_name:
             query = query.filter(Ticket.city_name == city_name)
+        
+        # Фильтр по мероприятию
+        if event_name:
+            query = query.filter(Ticket.event_name == event_name)
         
         # Фильтр по датам (исправлено)
         if start_date and end_date:
