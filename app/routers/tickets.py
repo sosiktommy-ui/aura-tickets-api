@@ -115,36 +115,64 @@ def hide_tickets_from_managers(
     event_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    ticket_id: Optional[int] = None,  # КРИТИЧЕСКИ ВАЖНО: ID конкретного билета
+    ticket_ids: Optional[str] = None,  # Список ID через запятую: "1,2,3"
     db: Session = Depends(get_db)
 ):
-    """Скрыть билеты от менеджеров (visible_to_managers = false)"""
+    """Скрыть билеты от менеджеров (visible_to_managers = false)
+    
+    ВАЖНО: Если указан ticket_id или ticket_ids, скрываются ТОЛЬКО эти билеты!
+    """
     try:
         query = db.query(Ticket)
         
-        # Фильтр по городу (club_id или city_name)
-        if club_id:
-            query = query.filter(Ticket.club_id == club_id)
-        elif city_name:
-            query = query.filter(Ticket.city_name == city_name)
+        # ПРИОРИТЕТ 1: Если указан конкретный ticket_id — скрываем ТОЛЬКО его
+        if ticket_id:
+            query = query.filter(Ticket.id == ticket_id)
+            print(f"👁️ Скрытие конкретного билета ID={ticket_id}")
         
-        # Фильтр по мероприятию
-        if event_name:
-            query = query.filter(Ticket.event_name == event_name)
+        # ПРИОРИТЕТ 2: Если указан список ticket_ids — скрываем ТОЛЬКО их
+        elif ticket_ids:
+            ids_list = [int(x.strip()) for x in ticket_ids.split(",") if x.strip().isdigit()]
+            if not ids_list:
+                raise HTTPException(status_code=400, detail="Неверный формат ticket_ids")
+            query = query.filter(Ticket.id.in_(ids_list))
+            print(f"👁️ Скрытие билетов ID={ids_list}")
         
-        # Фильтр по датам (исправлено)
-        if start_date and end_date:
-            from datetime import datetime
-            # Преобразуем строки дат в правильный формат
-            start_datetime = f"{start_date} 00:00:00"
-            end_datetime = f"{end_date} 23:59:59"
-            query = query.filter(Ticket.created_at >= start_datetime)
-            query = query.filter(Ticket.created_at <= end_datetime)
+        # ПРИОРИТЕТ 3: Массовое скрытие по фильтрам
+        else:
+            # Требуем хотя бы один фильтр для безопасности
+            if not any([club_id, city_name, event_name, start_date]):
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Для массового скрытия требуется указать хотя бы один фильтр"
+                )
+            
+            # Фильтр по городу (club_id или city_name)
+            if club_id:
+                query = query.filter(Ticket.club_id == club_id)
+            elif city_name:
+                query = query.filter(Ticket.city_name == city_name)
+            
+            # Фильтр по мероприятию
+            if event_name:
+                query = query.filter(Ticket.event_name == event_name)
+            
+            # Фильтр по датам
+            if start_date and end_date:
+                start_datetime = f"{start_date} 00:00:00"
+                end_datetime = f"{end_date} 23:59:59"
+                query = query.filter(Ticket.created_at >= start_datetime)
+                query = query.filter(Ticket.created_at <= end_datetime)
         
         updated_count = query.update({"visible_to_managers": False}, synchronize_session='fetch')
         db.commit()
         
+        print(f"✅ Скрыто {updated_count} билетов от менеджеров")
         return {"message": f"Скрыто {updated_count} билетов от менеджеров", "updated_count": updated_count}
         
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         print(f"❌ Ошибка скрытия: {e}")
@@ -271,6 +299,63 @@ def get_ticket(order_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Ticket {order_id} not found")
     
     return ticket
+
+
+@router.put("/by-id/{ticket_id}")
+def update_ticket_by_id(
+    ticket_id: int,
+    status: Optional[str] = None,
+    first_scan_at: Optional[str] = None,
+    scan_count: Optional[int] = None,
+    visible_to_managers: Optional[bool] = None,
+    db: Session = Depends(get_db)
+):
+    """Обновить билет по database ID (не order_id!)
+    
+    Можно обновлять:
+    - status: "valid", "used", "cancelled"
+    - first_scan_at: дата первого сканирования (или null для сброса)
+    - scan_count: количество сканирований
+    - visible_to_managers: видимость для менеджеров
+    """
+    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket with id={ticket_id} not found")
+    
+    # Обновляем только переданные поля
+    if status is not None:
+        ticket.status = status
+        print(f"✅ Билет {ticket_id}: статус → {status}")
+    
+    if first_scan_at is not None:
+        # Если передан "null" или пустая строка — сбрасываем
+        if first_scan_at == "" or first_scan_at.lower() == "null":
+            ticket.first_scan_at = None
+            print(f"✅ Билет {ticket_id}: first_scan_at → NULL")
+        else:
+            ticket.first_scan_at = first_scan_at
+            print(f"✅ Билет {ticket_id}: first_scan_at → {first_scan_at}")
+    
+    if scan_count is not None:
+        ticket.scan_count = scan_count
+        print(f"✅ Билет {ticket_id}: scan_count → {scan_count}")
+    
+    if visible_to_managers is not None:
+        ticket.visible_to_managers = visible_to_managers
+        print(f"✅ Билет {ticket_id}: visible_to_managers → {visible_to_managers}")
+    
+    db.commit()
+    db.refresh(ticket)
+    
+    return {"message": f"Билет {ticket_id} обновлён", "ticket": {
+        "id": ticket.id,
+        "order_id": ticket.order_id,
+        "status": ticket.status,
+        "first_scan_at": str(ticket.first_scan_at) if ticket.first_scan_at else None,
+        "scan_count": ticket.scan_count,
+        "visible_to_managers": ticket.visible_to_managers
+    }}
 
 
 @router.get("/token/{token}", response_model=TicketResponse)
