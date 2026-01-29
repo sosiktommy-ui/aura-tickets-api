@@ -186,48 +186,77 @@ def delete_tickets_range(
     event_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    ticket_id: Optional[int] = None,  # КРИТИЧЕСКИ ВАЖНО: ID конкретного билета
+    ticket_ids: Optional[str] = None,  # Список ID через запятую: "1,2,3"
     db: Session = Depends(get_db)
 ):
-    """Полностью удалить билеты из БД (сначала scan_history, потом tickets)"""
+    """Полностью удалить билеты из БД (сначала scan_history, потом tickets)
+    
+    ВАЖНО: Если указан ticket_id или ticket_ids, удаляются ТОЛЬКО эти билеты!
+    Остальные фильтры (даты, город) игнорируются для безопасности.
+    """
     try:
         query = db.query(Ticket)
         
-        # Фильтр по городу
-        if club_id:
-            query = query.filter(Ticket.club_id == club_id)
-        elif city_name:
-            query = query.filter(Ticket.city_name == city_name)
+        # ПРИОРИТЕТ 1: Если указан конкретный ticket_id — удаляем ТОЛЬКО его
+        if ticket_id:
+            query = query.filter(Ticket.id == ticket_id)
+            print(f"🗑️ Удаление конкретного билета ID={ticket_id}")
         
-        # Фильтр по мероприятию
-        if event_name:
-            query = query.filter(Ticket.event_name == event_name)
+        # ПРИОРИТЕТ 2: Если указан список ticket_ids — удаляем ТОЛЬКО их
+        elif ticket_ids:
+            ids_list = [int(x.strip()) for x in ticket_ids.split(",") if x.strip().isdigit()]
+            if not ids_list:
+                raise HTTPException(status_code=400, detail="Неверный формат ticket_ids")
+            query = query.filter(Ticket.id.in_(ids_list))
+            print(f"🗑️ Удаление билетов ID={ids_list}")
         
-        # Фильтр по датам (исправлено)
-        if start_date and end_date:
-            from datetime import datetime
-            # Преобразуем строки дат в правильный формат
-            start_datetime = f"{start_date} 00:00:00"
-            end_datetime = f"{end_date} 23:59:59"
-            query = query.filter(Ticket.created_at >= start_datetime)
-            query = query.filter(Ticket.created_at <= end_datetime)
+        # ПРИОРИТЕТ 3: Массовое удаление по фильтрам (опасно!)
+        else:
+            # Требуем хотя бы один фильтр для безопасности
+            if not any([club_id, city_name, event_name, start_date]):
+                raise HTTPException(
+                    status_code=400, 
+                    detail="Для массового удаления требуется указать хотя бы один фильтр (club_id, city_name, event_name или start_date)"
+                )
+            
+            # Фильтр по городу
+            if club_id:
+                query = query.filter(Ticket.club_id == club_id)
+            elif city_name:
+                query = query.filter(Ticket.city_name == city_name)
+            
+            # Фильтр по мероприятию
+            if event_name:
+                query = query.filter(Ticket.event_name == event_name)
+            
+            # Фильтр по датам
+            if start_date and end_date:
+                start_datetime = f"{start_date} 00:00:00"
+                end_datetime = f"{end_date} 23:59:59"
+                query = query.filter(Ticket.created_at >= start_datetime)
+                query = query.filter(Ticket.created_at <= end_datetime)
         
         # Подсчитываем перед удалением
         deleted_count = query.count()
         
         # Получаем ID билетов для удаления
-        ticket_ids = [t.id for t in query.all()]
+        ids_to_delete = [t.id for t in query.all()]
         
-        if ticket_ids:
+        if ids_to_delete:
             # СНАЧАЛА удаляем связанные записи из scan_history (ForeignKey fix)
-            db.query(ScanHistory).filter(ScanHistory.ticket_id.in_(ticket_ids)).delete(synchronize_session='fetch')
+            db.query(ScanHistory).filter(ScanHistory.ticket_id.in_(ids_to_delete)).delete(synchronize_session='fetch')
             
             # ПОТОМ удаляем билеты
-            db.query(Ticket).filter(Ticket.id.in_(ticket_ids)).delete(synchronize_session='fetch')
+            db.query(Ticket).filter(Ticket.id.in_(ids_to_delete)).delete(synchronize_session='fetch')
         
         db.commit()
         
+        print(f"✅ Удалено {deleted_count} билетов: {ids_to_delete}")
         return {"message": f"Удалено {deleted_count} билетов", "deleted_count": deleted_count}
         
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
         print(f"❌ Ошибка удаления: {e}")
