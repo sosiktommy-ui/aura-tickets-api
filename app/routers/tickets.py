@@ -179,10 +179,43 @@ def hide_tickets_from_managers(
         raise HTTPException(status_code=500, detail=f"Ошибка скрытия: {str(e)}")
 
 
+@router.get("/hidden-events")
+def get_hidden_events(
+    db: Session = Depends(get_db)
+):
+    """Получить список скрытых мероприятий (уникальные event_name со скрытыми билетами)"""
+    try:
+        # Получаем уникальные event_name, country_code, city_name для скрытых билетов
+        hidden_tickets = db.query(Ticket).filter(Ticket.visible_to_managers == False).all()
+        
+        # Группируем по event_name с подсчётом и информацией о стране/городе
+        events_data = {}
+        for ticket in hidden_tickets:
+            event_name = ticket.event_name or "Без названия"
+            if event_name not in events_data:
+                events_data[event_name] = {
+                    "event_name": event_name,
+                    "country_code": ticket.country_code,
+                    "city_name": ticket.city_name,
+                    "count": 0
+                }
+            events_data[event_name]["count"] += 1
+        
+        return {
+            "hidden_events": list(events_data.values()),
+            "total_hidden": len(hidden_tickets)
+        }
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения скрытых событий: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка: {str(e)}")
+
+
 @router.put("/show-to-managers")
 def show_tickets_to_managers(
     club_id: Optional[int] = None,
     city_name: Optional[str] = None,
+    event_name: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Восстановить скрытые билеты (visible_to_managers = true)"""
@@ -194,6 +227,10 @@ def show_tickets_to_managers(
             query = query.filter(Ticket.club_id == club_id)
         elif city_name:
             query = query.filter(Ticket.city_name == city_name)
+        
+        # Фильтр по мероприятию
+        if event_name:
+            query = query.filter(Ticket.event_name == event_name)
         
         updated_count = query.update({"visible_to_managers": True}, synchronize_session='fetch')
         db.commit()
