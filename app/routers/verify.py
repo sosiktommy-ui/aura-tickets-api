@@ -26,8 +26,32 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     token = qr_data.get("token")
     signature = qr_data.get("signature", "")
     
-    # 2. Проверяем подпись (используем тот же метод что и бот)
-    if not verify_signature_from_qr(qr_data, signature):
+    # 2. Сначала пробуем найти билет в БД по token или order_id
+    ticket = db.query(Ticket).filter(Ticket.qr_token == token).first()
+    
+    if not ticket:
+        ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
+    
+    # 3. Проверяем подпись
+    # ★ ИСПРАВЛЕНО: Если билет найден в базе — сравниваем signature из QR с сохранённой в базе
+    # Это решает проблему с UTF-8 кодировкой (USB сканеры искажают кириллицу)
+    signature_valid = False
+    
+    if ticket and ticket.qr_signature:
+        # Сравниваем подпись из QR с сохранённой в базе (case-insensitive)
+        signature_valid = (signature.upper() == ticket.qr_signature.upper())
+        if signature_valid:
+            print(f"✅ [VERIFY] Подпись подтверждена по базе: {signature}")
+        else:
+            print(f"⚠️ [VERIFY] Подпись из QR ({signature}) != база ({ticket.qr_signature})")
+    
+    # Если не нашли в базе или подпись не совпала — пробуем классическую проверку HMAC
+    if not signature_valid:
+        signature_valid = verify_signature_from_qr(qr_data, signature)
+        if signature_valid:
+            print(f"✅ [VERIFY] Подпись подтверждена по HMAC: {signature}")
+    
+    if not signature_valid:
         log_scan(db, None, order_id, "forged", request.scanner_id, "Invalid signature", club_id=None)
         return VerifyResponse(
             status="invalid",
@@ -35,13 +59,7 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
             data=qr_data
         )
     
-    # 3. Ищем билет в БД
-    ticket = db.query(Ticket).filter(Ticket.qr_token == token).first()
-    
-    if not ticket:
-        # Пробуем найти по order_id
-        ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
-    
+    # 4. Билет не найден в БД
     if not ticket:
         log_scan(db, None, order_id, "invalid", request.scanner_id, "Not found in DB", club_id=None)
         return VerifyResponse(
