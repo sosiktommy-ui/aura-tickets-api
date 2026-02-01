@@ -37,13 +37,23 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     # Это решает проблему с UTF-8 кодировкой (USB сканеры искажают кириллицу)
     signature_valid = False
     
-    if ticket and ticket.qr_signature:
-        # Сравниваем подпись из QR с сохранённой в базе (case-insensitive)
-        signature_valid = (signature.upper() == ticket.qr_signature.upper())
-        if signature_valid:
-            print(f"✅ [VERIFY] Подпись подтверждена по базе: {signature}")
-        else:
-            print(f"⚠️ [VERIFY] Подпись из QR ({signature}) != база ({ticket.qr_signature})")
+    print(f"🔍 [VERIFY DEBUG] order_id={order_id}, token={token}, signature={signature}")
+    print(f"🔍 [VERIFY DEBUG] ticket found: {ticket is not None}")
+    
+    if ticket:
+        print(f"🔍 [VERIFY DEBUG] ticket.qr_signature={ticket.qr_signature}, ticket.qr_token={ticket.qr_token}")
+        
+        if ticket.qr_signature:
+            # Сравниваем подпись из QR с сохранённой в базе (case-insensitive)
+            sig_from_qr = signature.strip().upper()
+            sig_from_db = ticket.qr_signature.strip().upper()
+            signature_valid = (sig_from_qr == sig_from_db)
+            print(f"🔍 [VERIFY DEBUG] Comparing: '{sig_from_qr}' == '{sig_from_db}' => {signature_valid}")
+            
+            if signature_valid:
+                print(f"✅ [VERIFY] Подпись подтверждена по базе: {signature}")
+            else:
+                print(f"⚠️ [VERIFY] Подпись из QR ({signature}) != база ({ticket.qr_signature})")
     
     # Если не нашли в базе или подпись не совпала — пробуем классическую проверку HMAC
     if not signature_valid:
