@@ -223,3 +223,44 @@ def log_scan(db: Session, ticket_id, order_id, result, scanner_id, notes=None, c
     )
     db.add(scan)
     db.commit()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# ЛОГИРОВАНИЕ DENIED БЕЗ ИЗМЕНЕНИЯ SCAN_COUNT
+# ═══════════════════════════════════════════════════════════════════
+
+from pydantic import BaseModel
+from typing import Optional
+
+class LogDeniedRequest(BaseModel):
+    order_id: str
+    reason: str  # "wrong_date", "wrong_city"
+    scanner_id: Optional[str] = None
+    qr_event_date: Optional[str] = None
+    filter_event_date: Optional[str] = None
+    club_id: Optional[int] = None
+
+@router.post("/log-denied")
+def log_denied_scan(request: LogDeniedRequest, db: Session = Depends(get_db)):
+    """
+    Логирует denied скан БЕЗ изменения scan_count билета.
+    Используется когда билет на другую дату/город.
+    """
+    # Пробуем найти билет для получения ticket_id
+    ticket = db.query(Ticket).filter(Ticket.order_id == request.order_id).first()
+    ticket_id = ticket.id if ticket else None
+    club_id = request.club_id or (ticket.club_id if ticket else None)
+    
+    notes = f"{request.reason}: QR={request.qr_event_date}, Filter={request.filter_event_date}"
+    
+    log_scan(
+        db=db,
+        ticket_id=ticket_id,
+        order_id=request.order_id,
+        result="denied",
+        scanner_id=request.scanner_id,
+        notes=notes,
+        club_id=club_id
+    )
+    
+    return {"status": "logged", "order_id": request.order_id, "reason": request.reason}
