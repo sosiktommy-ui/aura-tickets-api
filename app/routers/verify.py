@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime
+from typing import Optional
 
 from app.database import get_db
 from app.models import Ticket, ScanHistory
@@ -264,3 +265,66 @@ def log_denied_scan(request: LogDeniedRequest, db: Session = Depends(get_db)):
     )
     
     return {"status": "logged", "order_id": request.order_id, "reason": request.reason}
+
+
+@router.get("/denied-scans")
+def get_denied_scans(
+    club_id: Optional[int] = None,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """
+    Получить список denied сканов для отображения в красной вкладке.
+    Возвращает сканы со статусом 'denied', 'forged', 'invalid'.
+    """
+    query = db.query(ScanHistory).filter(
+        ScanHistory.scan_result.in_(["denied", "forged", "invalid"])
+    )
+    
+    if club_id:
+        query = query.filter(ScanHistory.club_id == club_id)
+    
+    # Сортируем по времени (новые первые)
+    query = query.order_by(ScanHistory.scanned_at.desc())
+    
+    if limit:
+        query = query.limit(limit)
+    
+    scans = query.all()
+    
+    result = []
+    for scan in scans:
+        # Пробуем получить данные билета если есть
+        ticket_data = {}
+        if scan.ticket_id:
+            ticket = db.query(Ticket).filter(Ticket.id == scan.ticket_id).first()
+            if ticket:
+                ticket_data = {
+                    "name": ticket.customer_name,
+                    "email": ticket.customer_email,
+                    "phone": ticket.customer_phone,
+                    "event_date": ticket.event_date,
+                    "ticket_type": ticket.ticket_type
+                }
+        
+        result.append({
+            "id": scan.id,
+            "order_id": scan.order_id or "",
+            "scan_result": scan.scan_result,
+            "notes": scan.notes or "",
+            "scanned_at": scan.scanned_at.isoformat() if scan.scanned_at else "",
+            "club_id": scan.club_id,
+            **ticket_data
+        })
+    
+    # Также возвращаем общее количество denied
+    total_denied = db.query(ScanHistory).filter(
+        ScanHistory.scan_result.in_(["denied", "forged", "invalid"])
+    )
+    if club_id:
+        total_denied = total_denied.filter(ScanHistory.club_id == club_id)
+    
+    return {
+        "denied_scans": result,
+        "total_count": total_denied.count()
+    }
