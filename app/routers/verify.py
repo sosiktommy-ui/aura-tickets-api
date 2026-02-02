@@ -206,6 +206,7 @@ def ticket_to_dict(ticket: Ticket) -> dict:
         "ticket_type": ticket.ticket_type,
         "event_date": ticket.event_date,
         "price": ticket.price,
+        "promocode": ticket.promocode or "",
         "scan_count": ticket.scan_count,
         "quantity": ticket.quantity or 1,
         "first_scan_at": ticket.first_scan_at.isoformat() if ticket.first_scan_at else None
