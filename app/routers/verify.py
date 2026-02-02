@@ -285,7 +285,7 @@ def get_denied_scans(
         query = query.filter(ScanHistory.club_id == club_id)
     
     # Сортируем по времени (новые первые)
-    query = query.order_by(ScanHistory.scanned_at.desc())
+    query = query.order_by(ScanHistory.scan_time.desc())
     
     if limit:
         query = query.limit(limit)
@@ -312,7 +312,7 @@ def get_denied_scans(
             "order_id": scan.order_id or "",
             "scan_result": scan.scan_result,
             "notes": scan.notes or "",
-            "scanned_at": scan.scanned_at.isoformat() if scan.scanned_at else "",
+            "scanned_at": scan.scan_time.isoformat() if scan.scan_time else "",
             "club_id": scan.club_id,
             **ticket_data
         })
