@@ -749,10 +749,16 @@ def fix_club_ids(db: Session = Depends(get_db)):
 
 
 @router.delete("/by-event")
-def delete_tickets_by_event(event_name: str = Query(..., description="Название мероприятия"), db: Session = Depends(get_db)):
-    """Удалить все билеты по event_name"""
+def delete_tickets_by_event(
+    event_name: str = Query(..., description="Название мероприятия"),
+    deleted_by: str = Query(default="admin_panel", description="Кто удалил"),
+    db: Session = Depends(get_db)
+):
+    """Удалить все билеты по event_name — с архивированием в deleted_tickets"""
     
     try:
+        from app.models import DeletedTicket
+        
         if not event_name:
             raise HTTPException(status_code=400, detail="event_name is required")
         
@@ -766,13 +772,58 @@ def delete_tickets_by_event(event_name: str = Query(..., description="Назва
         
         if count_before == 0:
             print(f"⚠️ Билетов не найдено для event: '{event_name}'")
-            return {"deleted_count": 0, "event_name": event_name, "message": "No tickets found"}
+            return {"deleted_count": 0, "event_name": event_name, "message": "No tickets found", "archived": 0}
         
         # Получаем ID всех билетов для удаления
         ticket_ids = [ticket.id for ticket in tickets_to_delete]
         
         print(f"🔗 ID билетов для удаления: {ticket_ids}")
         
+        # ===== АРХИВИРОВАНИЕ: Копируем билеты в deleted_tickets =====
+        archived_count = 0
+        for ticket in tickets_to_delete:
+            try:
+                archived = DeletedTicket(
+                    original_id=ticket.id,
+                    order_id=ticket.order_id,
+                    transaction_id=ticket.transaction_id,
+                    customer_name=ticket.customer_name,
+                    customer_email=ticket.customer_email,
+                    customer_phone=ticket.customer_phone,
+                    ticket_type=ticket.ticket_type,
+                    event_date=ticket.event_date,
+                    event_name=ticket.event_name,
+                    price=ticket.price,
+                    subtotal=ticket.subtotal,
+                    discount=ticket.discount,
+                    payment_amount=ticket.payment_amount,
+                    promocode=ticket.promocode,
+                    qr_token=ticket.qr_token,
+                    qr_signature=ticket.qr_signature,
+                    country_code=ticket.country_code,
+                    city_name=ticket.city_name,
+                    club_id=ticket.club_id,
+                    visible_to_managers=ticket.visible_to_managers,
+                    quantity=ticket.quantity,
+                    status=ticket.status,
+                    scan_count=ticket.scan_count,
+                    first_scan_at=ticket.first_scan_at,
+                    last_scan_at=ticket.last_scan_at,
+                    scanned_by=ticket.scanned_by,
+                    telegram_message_id=ticket.telegram_message_id,
+                    original_created_at=ticket.created_at,
+                    original_updated_at=ticket.updated_at,
+                    deleted_by=deleted_by,
+                    delete_reason=f"Удаление по EVENT TITLE: {event_name}"
+                )
+                db.add(archived)
+                archived_count += 1
+            except Exception as e:
+                print(f"⚠️ Не удалось архивировать билет {ticket.id}: {e}")
+        
+        print(f"📦 Архивировано {archived_count} билетов в deleted_tickets")
+        
+        # ===== УДАЛЕНИЕ =====
         # Сначала удаляем все связанные записи из scan_history
         scan_history_deleted = db.query(ScanHistory).filter(ScanHistory.ticket_id.in_(ticket_ids)).delete(synchronize_session=False)
         
@@ -785,13 +836,14 @@ def delete_tickets_by_event(event_name: str = Query(..., description="Назва
         db.commit()
         
         print(f"✅ Удалено билетов: {tickets_deleted}")
-        print(f"✅ Общий результат: scan_history={scan_history_deleted}, tickets={tickets_deleted}")
+        print(f"✅ Общий результат: archived={archived_count}, scan_history={scan_history_deleted}, tickets={tickets_deleted}")
         
         return {
             "deleted_count": tickets_deleted, 
             "event_name": event_name,
+            "archived": archived_count,
             "scan_history_deleted": scan_history_deleted,
-            "message": f"Deleted {tickets_deleted} tickets and {scan_history_deleted} scan history records"
+            "message": f"Deleted {tickets_deleted} tickets (archived {archived_count})"
         }
         
     except Exception as e:

@@ -213,3 +213,145 @@ def get_deleted_stats(db: Session = Depends(get_db)):
     except Exception as e:
         print(f"❌ Ошибка статистики: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/all-with-deleted")
+def get_all_tickets_with_deleted(
+    city_name: Optional[str] = None,
+    event_name: Optional[str] = None,
+    search: Optional[str] = None,
+    filter_mode: str = Query(default="all", description="all | deleted | active"),
+    limit: int = Query(default=10000, le=50000),
+    offset: int = 0,
+    db: Session = Depends(get_db)
+):
+    """Получить ВСЕ билеты (активные + удалённые) для Super Observer
+    
+    filter_mode:
+    - all: все билеты (активные + удалённые)
+    - deleted: только удалённые
+    - active: только активные
+    """
+    try:
+        result = []
+        
+        # ===== АКТИВНЫЕ БИЛЕТЫ =====
+        if filter_mode in ("all", "active"):
+            query = db.query(Ticket)
+            
+            if city_name:
+                query = query.filter(Ticket.city_name == city_name)
+            if event_name:
+                query = query.filter(Ticket.event_name == event_name)
+            if search:
+                search_pattern = f"%{search}%"
+                query = query.filter(
+                    (Ticket.customer_name.ilike(search_pattern)) |
+                    (Ticket.customer_email.ilike(search_pattern)) |
+                    (Ticket.order_id.ilike(search_pattern))
+                )
+            
+            active_tickets = query.all()
+            for t in active_tickets:
+                result.append({
+                    "id": t.id,
+                    "order_id": t.order_id,
+                    "customer_name": t.customer_name,
+                    "customer_email": t.customer_email,
+                    "customer_phone": t.customer_phone,
+                    "ticket_type": t.ticket_type,
+                    "event_date": t.event_date,
+                    "event_name": t.event_name,
+                    "price": t.price,
+                    "subtotal": t.subtotal,
+                    "promocode": t.promocode,
+                    "status": t.status,
+                    "scan_count": t.scan_count,
+                    "first_scan_at": str(t.first_scan_at) if t.first_scan_at else None,
+                    "qr_token": t.qr_token,
+                    "qr_signature": t.qr_signature,
+                    "created_at": str(t.created_at) if t.created_at else None,
+                    "city_name": t.city_name,
+                    "country_code": t.country_code,
+                    "club_id": t.club_id,
+                    "visible_to_managers": t.visible_to_managers,
+                    "quantity": t.quantity,
+                    # ВАЖНО: Пометка что билет НЕ удалён
+                    "_is_deleted": False,
+                    "_deleted_at": None,
+                    "_deleted_by": None
+                })
+        
+        # ===== УДАЛЁННЫЕ БИЛЕТЫ =====
+        if filter_mode in ("all", "deleted"):
+            query = db.query(DeletedTicket)
+            
+            if city_name:
+                query = query.filter(DeletedTicket.city_name == city_name)
+            if event_name:
+                query = query.filter(DeletedTicket.event_name == event_name)
+            if search:
+                search_pattern = f"%{search}%"
+                query = query.filter(
+                    (DeletedTicket.customer_name.ilike(search_pattern)) |
+                    (DeletedTicket.customer_email.ilike(search_pattern)) |
+                    (DeletedTicket.order_id.ilike(search_pattern))
+                )
+            
+            deleted_tickets = query.all()
+            for t in deleted_tickets:
+                result.append({
+                    "id": t.id,
+                    "order_id": t.order_id,
+                    "customer_name": t.customer_name,
+                    "customer_email": t.customer_email,
+                    "customer_phone": t.customer_phone,
+                    "ticket_type": t.ticket_type,
+                    "event_date": t.event_date,
+                    "event_name": t.event_name,
+                    "price": t.price,
+                    "subtotal": t.subtotal,
+                    "promocode": t.promocode,
+                    "status": t.status,
+                    "scan_count": t.scan_count,
+                    "first_scan_at": str(t.first_scan_at) if t.first_scan_at else None,
+                    "qr_token": t.qr_token,
+                    "qr_signature": t.qr_signature,
+                    "created_at": str(t.original_created_at) if t.original_created_at else None,
+                    "city_name": t.city_name,
+                    "country_code": t.country_code,
+                    "club_id": t.club_id,
+                    "visible_to_managers": t.visible_to_managers,
+                    "quantity": t.quantity,
+                    # ВАЖНО: Пометка что билет УДАЛЁН
+                    "_is_deleted": True,
+                    "_deleted_at": str(t.deleted_at) if t.deleted_at else None,
+                    "_deleted_by": t.deleted_by,
+                    "_original_id": t.original_id
+                })
+        
+        # Сортировка по дате создания (новые первые)
+        result.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+        
+        total = len(result)
+        active_count = sum(1 for r in result if not r.get("_is_deleted"))
+        deleted_count = sum(1 for r in result if r.get("_is_deleted"))
+        
+        # Применяем offset/limit
+        result = result[offset:offset+limit]
+        
+        return {
+            "tickets": result,
+            "total": total,
+            "active_count": active_count,
+            "deleted_count": deleted_count,
+            "filter_mode": filter_mode,
+            "limit": limit,
+            "offset": offset
+        }
+        
+    except Exception as e:
+        print(f"❌ Ошибка получения всех билетов: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
