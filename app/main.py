@@ -52,7 +52,7 @@ def debug_db():
         }
 
 # Роутеры подключаем после
-from app.routers import tickets, verify, stats, history, auth, clubs, tilda  # IMPREZA: добавлен auth, clubs и tilda
+from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets  # IMPREZA: добавлен deleted_tickets
 
 app.include_router(tickets.router)
 app.include_router(verify.router)
@@ -61,6 +61,7 @@ app.include_router(history.router)
 app.include_router(auth.router)  # IMPREZA: подключен роутер авторизации
 app.include_router(clubs.router)  # IMPREZA: подключен роутер clubs
 app.include_router(tilda.router)  # Подключен роутер для Tilda webhooks
+app.include_router(deleted_tickets.router)  # Архив удалённых билетов
 
 # Инициализация БД при первом запросе
 @app.on_event("startup")
@@ -103,6 +104,58 @@ async def startup():
                 print("✅ Added column: quantity")
             else:
                 print("✅ Column quantity already exists")
+            
+            # DELETED_TICKETS: Создаём таблицу архива если её нет
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'deleted_tickets'
+                )
+            """))
+            if not result.scalar():
+                conn.execute(sqlalchemy.text("""
+                    CREATE TABLE deleted_tickets (
+                        id SERIAL PRIMARY KEY,
+                        original_id INTEGER NOT NULL,
+                        order_id VARCHAR(50) NOT NULL,
+                        transaction_id VARCHAR(100),
+                        customer_name VARCHAR(200) NOT NULL,
+                        customer_email VARCHAR(200),
+                        customer_phone VARCHAR(50),
+                        ticket_type VARCHAR(100) DEFAULT 'Standard',
+                        event_date VARCHAR(20),
+                        event_name VARCHAR(200),
+                        price FLOAT DEFAULT 0,
+                        subtotal FLOAT DEFAULT 0,
+                        discount FLOAT DEFAULT 0,
+                        payment_amount FLOAT DEFAULT 0,
+                        promocode VARCHAR(50),
+                        qr_token VARCHAR(100),
+                        qr_signature VARCHAR(100),
+                        country_code VARCHAR(10),
+                        city_name VARCHAR(100),
+                        club_id INTEGER,
+                        visible_to_managers BOOLEAN DEFAULT TRUE,
+                        quantity INTEGER DEFAULT 1,
+                        status VARCHAR(20) DEFAULT 'valid',
+                        scan_count INTEGER DEFAULT 0,
+                        first_scan_at TIMESTAMP,
+                        last_scan_at TIMESTAMP,
+                        scanned_by VARCHAR(100),
+                        telegram_message_id INTEGER,
+                        original_created_at TIMESTAMP,
+                        original_updated_at TIMESTAMP,
+                        deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        deleted_by VARCHAR(100),
+                        delete_reason VARCHAR(500)
+                    )
+                """))
+                conn.execute(sqlalchemy.text("CREATE INDEX idx_deleted_tickets_order_id ON deleted_tickets(order_id)"))
+                conn.execute(sqlalchemy.text("CREATE INDEX idx_deleted_tickets_deleted_at ON deleted_tickets(deleted_at)"))
+                conn.commit()
+                print("✅ Created table: deleted_tickets (archive)")
+            else:
+                print("✅ Table deleted_tickets already exists")
                 
     except Exception as e:
         print(f"⚠️ DB init error: {e}")

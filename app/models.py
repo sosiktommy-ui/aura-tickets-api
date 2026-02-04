@@ -84,3 +84,54 @@ class Club(Base):
     password_hash = Column(String(255), nullable=False)
     plain_password = Column(String(255), nullable=True)  # Plain-text пароль для показа в админке
     is_active = Column(Boolean, default=True)
+
+
+class DeletedTicket(Base):
+    """Архив удалённых билетов — для восстановления и аудита"""
+    __tablename__ = "deleted_tickets"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Оригинальные поля из tickets
+    original_id = Column(Integer, nullable=False)  # ID билета до удаления
+    order_id = Column(String(50), nullable=False, index=True)
+    transaction_id = Column(String(100))
+    
+    customer_name = Column(String(200), nullable=False)
+    customer_email = Column(String(200), index=True)
+    customer_phone = Column(String(50))
+    
+    ticket_type = Column(String(100), default="Standard")
+    event_date = Column(String(20))
+    event_name = Column(String(200), index=True)
+    price = Column(Float, default=0)
+    subtotal = Column(Float, default=0)
+    discount = Column(Float, default=0)
+    payment_amount = Column(Float, default=0)
+    promocode = Column(String(50))
+    
+    qr_token = Column(String(100))
+    qr_signature = Column(String(100))
+    
+    country_code = Column(String(10))
+    city_name = Column(String(100), index=True)
+    club_id = Column(Integer)
+    
+    visible_to_managers = Column(Boolean, default=True)
+    quantity = Column(Integer, default=1)
+    
+    status = Column(String(20), default="valid")
+    scan_count = Column(Integer, default=0)
+    first_scan_at = Column(DateTime)
+    last_scan_at = Column(DateTime)
+    scanned_by = Column(String(100))
+    
+    telegram_message_id = Column(Integer)
+    
+    original_created_at = Column(DateTime)  # Когда билет был создан
+    original_updated_at = Column(DateTime)  # Когда билет был обновлён
+    
+    # Поля архива
+    deleted_at = Column(DateTime, server_default=func.now(), index=True)
+    deleted_by = Column(String(100))  # Кто удалил
+    delete_reason = Column(String(500))  # Причина удаления

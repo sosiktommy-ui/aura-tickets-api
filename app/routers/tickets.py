@@ -253,14 +253,17 @@ def delete_tickets_range(
     end_date: Optional[str] = None,
     ticket_id: Optional[int] = None,  # КРИТИЧЕСКИ ВАЖНО: ID конкретного билета
     ticket_ids: Optional[str] = None,  # Список ID через запятую: "1,2,3"
+    deleted_by: Optional[str] = None,  # Кто удаляет (для аудита)
     db: Session = Depends(get_db)
 ):
-    """Полностью удалить билеты из БД (сначала scan_history, потом tickets)
+    """Удалить билеты — сначала архивируем в deleted_tickets, потом удаляем
     
     ВАЖНО: Если указан ticket_id или ticket_ids, удаляются ТОЛЬКО эти билеты!
     Остальные фильтры (даты, город) игнорируются для безопасности.
     """
     try:
+        from app.models import DeletedTicket
+        
         query = db.query(Ticket)
         
         # ПРИОРИТЕТ 1: Если указан конкретный ticket_id — удаляем ТОЛЬКО его
@@ -302,13 +305,56 @@ def delete_tickets_range(
                 query = query.filter(Ticket.created_at >= start_datetime)
                 query = query.filter(Ticket.created_at <= end_datetime)
         
-        # Подсчитываем перед удалением
-        deleted_count = query.count()
+        # Получаем билеты для удаления
+        tickets_to_delete = query.all()
+        deleted_count = len(tickets_to_delete)
+        ids_to_delete = [t.id for t in tickets_to_delete]
         
-        # Получаем ID билетов для удаления
-        ids_to_delete = [t.id for t in query.all()]
-        
-        if ids_to_delete:
+        if tickets_to_delete:
+            # ===== АРХИВИРОВАНИЕ: Копируем билеты в deleted_tickets =====
+            archived_count = 0
+            for ticket in tickets_to_delete:
+                try:
+                    archived = DeletedTicket(
+                        original_id=ticket.id,
+                        order_id=ticket.order_id,
+                        transaction_id=ticket.transaction_id,
+                        customer_name=ticket.customer_name,
+                        customer_email=ticket.customer_email,
+                        customer_phone=ticket.customer_phone,
+                        ticket_type=ticket.ticket_type,
+                        event_date=ticket.event_date,
+                        event_name=ticket.event_name,
+                        price=ticket.price,
+                        subtotal=ticket.subtotal,
+                        discount=ticket.discount,
+                        payment_amount=ticket.payment_amount,
+                        promocode=ticket.promocode,
+                        qr_token=ticket.qr_token,
+                        qr_signature=ticket.qr_signature,
+                        country_code=ticket.country_code,
+                        city_name=ticket.city_name,
+                        club_id=ticket.club_id,
+                        visible_to_managers=ticket.visible_to_managers,
+                        quantity=ticket.quantity,
+                        status=ticket.status,
+                        scan_count=ticket.scan_count,
+                        first_scan_at=ticket.first_scan_at,
+                        last_scan_at=ticket.last_scan_at,
+                        scanned_by=ticket.scanned_by,
+                        telegram_message_id=ticket.telegram_message_id,
+                        original_created_at=ticket.created_at,
+                        original_updated_at=ticket.updated_at,
+                        deleted_by=deleted_by or "admin_panel"
+                    )
+                    db.add(archived)
+                    archived_count += 1
+                except Exception as e:
+                    print(f"⚠️ Не удалось архивировать билет {ticket.id}: {e}")
+            
+            print(f"📦 Архивировано {archived_count} билетов в deleted_tickets")
+            
+            # ===== УДАЛЕНИЕ из основных таблиц =====
             # СНАЧАЛА удаляем связанные записи из scan_history (ForeignKey fix)
             db.query(ScanHistory).filter(ScanHistory.ticket_id.in_(ids_to_delete)).delete(synchronize_session='fetch')
             
@@ -318,7 +364,11 @@ def delete_tickets_range(
         db.commit()
         
         print(f"✅ Удалено {deleted_count} билетов: {ids_to_delete}")
-        return {"message": f"Удалено {deleted_count} билетов", "deleted_count": deleted_count}
+        return {
+            "message": f"Удалено {deleted_count} билетов", 
+            "deleted_count": deleted_count,
+            "archived": True
+        }
         
     except HTTPException:
         raise
