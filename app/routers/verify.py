@@ -62,13 +62,21 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
         if signature_valid:
             print(f"✅ [VERIFY] Подпись подтверждена по HMAC: {signature}")
     
+    # ★ ИСПРАВЛЕНО: Если билет НАЙДЕН в базе - он не поддельный, даже если подпись не совпала
+    # USB сканеры часто искажают кодировку кириллицы, что ломает HMAC
     if not signature_valid:
-        log_scan(db, None, order_id, "forged", request.scanner_id, "Invalid signature", club_id=None)
-        return VerifyResponse(
-            status="invalid",
-            message="Forged ticket - invalid signature",
-            data=qr_data
-        )
+        if ticket:
+            # Билет найден в базе - разрешаем, несмотря на несовпадение подписи
+            print(f"⚠️ [VERIFY] Подпись не совпала, но билет найден в БД - разрешаем: {order_id}")
+            signature_valid = True  # Доверяем базе данных
+        else:
+            # Билет НЕ найден в базе И подпись не валидна - это поддельный билет
+            log_scan(db, None, order_id, "forged", request.scanner_id, "Invalid signature", club_id=None)
+            return VerifyResponse(
+                status="invalid",
+                message="Forged ticket - invalid signature",
+                data=qr_data
+            )
     
     # 4. Билет не найден в БД
     if not ticket:

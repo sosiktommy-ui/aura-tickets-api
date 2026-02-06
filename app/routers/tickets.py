@@ -468,6 +468,55 @@ def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
     return {"status": "cancelled", "order_id": order_id}
 
 
+@router.patch("/{order_id}/scan")
+def increment_scan_count(order_id: str, db: Session = Depends(get_db)):
+    """Увеличить счётчик сканирований билета (для HMAC fallback)
+    
+    Используется когда билет найден в базе, но HMAC подпись не совпала.
+    Увеличивает scan_count на 1 и возвращает обновлённые данные.
+    """
+    ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
+    
+    if not ticket:
+        raise HTTPException(status_code=404, detail=f"Ticket {order_id} not found")
+    
+    # Увеличиваем счётчик
+    ticket.scan_count = (ticket.scan_count or 0) + 1
+    ticket.last_scan_at = datetime.now()
+    
+    # Если первое сканирование - запоминаем время
+    if not ticket.first_scan_at:
+        ticket.first_scan_at = datetime.now()
+    
+    # Определяем статус
+    quantity = ticket.quantity or 1
+    if ticket.scan_count >= quantity:
+        ticket.status = "used"
+        status_msg = f"Билет использован ({ticket.scan_count}/{quantity})"
+        response_status = "used"
+    else:
+        status_msg = f"Вход {ticket.scan_count}/{quantity}"
+        response_status = "valid"
+    
+    db.commit()
+    
+    return {
+        "status": response_status,
+        "message": status_msg,
+        "data": {
+            "order_id": ticket.order_id,
+            "name": ticket.customer_name,
+            "email": ticket.customer_email,
+            "phone": ticket.customer_phone,
+            "ticket_type": ticket.ticket_type,
+            "event_date": ticket.event_date,
+            "price": ticket.price,
+            "quantity": ticket.quantity or 1,
+            "scan_count": ticket.scan_count,
+        }
+    }
+
+
 @router.patch("/{order_id}/status")
 def change_ticket_status(order_id: str, data: dict, db: Session = Depends(get_db)):
     """Изменить статус билета вручную (для менеджера/админа)
