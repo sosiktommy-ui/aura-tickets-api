@@ -1,10 +1,10 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
 app = FastAPI(
     title="AURA Tickets API",
-    description="API для системы билетов AURA",
+    description="API РґР»СЏ СЃРёСЃС‚РµРјС‹ Р±РёР»РµС‚РѕРІ AURA",
     version="1.0.0"
 )
 
@@ -16,7 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Health check первым - без зависимостей
+# Health check РїРµСЂРІС‹Рј - Р±РµР· Р·Р°РІРёСЃРёРјРѕСЃС‚РµР№
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "service": "AURA Tickets API"}
@@ -25,16 +25,16 @@ def health_check():
 def root():
     return {"service": "AURA Tickets API", "version": "1.0.0", "docs": "/docs"}
 
-# Диагностика БД
+# Р”РёР°РіРЅРѕСЃС‚РёРєР° Р‘Р”
 @app.get("/debug/db")
 def debug_db():
-    """Проверка подключения к базе данных"""
+    """РџСЂРѕРІРµСЂРєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє Р±Р°Р·Рµ РґР°РЅРЅС‹С…"""
     try:
         from app.database import engine
         from app.config import settings
         import sqlalchemy
         
-        # Пробуем подключиться
+        # РџСЂРѕР±СѓРµРј РїРѕРґРєР»СЋС‡РёС‚СЊСЃСЏ
         with engine.connect() as conn:
             result = conn.execute(sqlalchemy.text("SELECT 1"))
             result.fetchone()
@@ -51,47 +51,48 @@ def debug_db():
             "error_type": type(e).__name__
         }
 
-# Роутеры подключаем после
-from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets  # IMPREZA: добавлен deleted_tickets
+# Р РѕСѓС‚РµСЂС‹ РїРѕРґРєР»СЋС‡Р°РµРј РїРѕСЃР»Рµ
+from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets, admin_auth  # IMPREZA: РґРѕР±Р°РІР»РµРЅ deleted_tickets
 
 app.include_router(tickets.router)
 app.include_router(verify.router)
 app.include_router(stats.router)
 app.include_router(history.router)
-app.include_router(auth.router)  # IMPREZA: подключен роутер авторизации
-app.include_router(clubs.router)  # IMPREZA: подключен роутер clubs
-app.include_router(tilda.router)  # Подключен роутер для Tilda webhooks
-app.include_router(deleted_tickets.router)  # Архив удалённых билетов
+app.include_router(auth.router)  # IMPREZA: РїРѕРґРєР»СЋС‡РµРЅ СЂРѕСѓС‚РµСЂ Р°РІС‚РѕСЂРёР·Р°С†РёРё
+app.include_router(clubs.router)  # IMPREZA: РїРѕРґРєР»СЋС‡РµРЅ СЂРѕСѓС‚РµСЂ clubs
+app.include_router(tilda.router)  # РџРѕРґРєР»СЋС‡РµРЅ СЂРѕСѓС‚РµСЂ РґР»СЏ Tilda webhooks
+app.include_router(deleted_tickets.router)  # РђСЂС…РёРІ СѓРґР°Р»С‘РЅРЅС‹С… Р±РёР»РµС‚РѕРІ
+app.include_router(admin_auth.router)  # IMPREZA: Web admin panel JWT auth
 
-# Инициализация БД при первом запросе
+# РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р‘Р” РїСЂРё РїРµСЂРІРѕРј Р·Р°РїСЂРѕСЃРµ
 @app.on_event("startup")
 async def startup():
     try:
         from app.database import engine, Base
         import sqlalchemy
         
-        # Создаём таблицы если не существуют
+        # РЎРѕР·РґР°С‘Рј С‚Р°Р±Р»РёС†С‹ РµСЃР»Рё РЅРµ СЃСѓС‰РµСЃС‚РІСѓСЋС‚
         Base.metadata.create_all(bind=engine)
-        print("✅ Database tables created/verified")
+        print("вњ… Database tables created/verified")
         
-        # Автомиграция: добавляем колонку visible_to_managers если её нет
+        # РђРІС‚РѕРјРёРіСЂР°С†РёСЏ: РґРѕР±Р°РІР»СЏРµРј РєРѕР»РѕРЅРєСѓ visible_to_managers РµСЃР»Рё РµС‘ РЅРµС‚
         with engine.connect() as conn:
-            # Проверяем есть ли колонка visible_to_managers
+            # РџСЂРѕРІРµСЂСЏРµРј РµСЃС‚СЊ Р»Рё РєРѕР»РѕРЅРєР° visible_to_managers
             result = conn.execute(sqlalchemy.text("""
                 SELECT column_name FROM information_schema.columns 
                 WHERE table_name = 'tickets' AND column_name = 'visible_to_managers'
             """))
             if not result.fetchone():
-                # Колонки нет - добавляем
+                # РљРѕР»РѕРЅРєРё РЅРµС‚ - РґРѕР±Р°РІР»СЏРµРј
                 conn.execute(sqlalchemy.text("""
                     ALTER TABLE tickets ADD COLUMN visible_to_managers BOOLEAN DEFAULT TRUE
                 """))
                 conn.commit()
-                print("✅ Added column: visible_to_managers")
+                print("вњ… Added column: visible_to_managers")
             else:
-                print("✅ Column visible_to_managers already exists")
+                print("вњ… Column visible_to_managers already exists")
             
-            # QUANTITY: Добавляем колонку quantity если её нет
+            # QUANTITY: Р”РѕР±Р°РІР»СЏРµРј РєРѕР»РѕРЅРєСѓ quantity РµСЃР»Рё РµС‘ РЅРµС‚
             result = conn.execute(sqlalchemy.text("""
                 SELECT column_name FROM information_schema.columns 
                 WHERE table_name = 'tickets' AND column_name = 'quantity'
@@ -101,11 +102,11 @@ async def startup():
                     ALTER TABLE tickets ADD COLUMN quantity INTEGER DEFAULT 1
                 """))
                 conn.commit()
-                print("✅ Added column: quantity")
+                print("вњ… Added column: quantity")
             else:
-                print("✅ Column quantity already exists")
+                print("вњ… Column quantity already exists")
             
-            # DELETED_TICKETS: Создаём таблицу архива если её нет
+            # DELETED_TICKETS: РЎРѕР·РґР°С‘Рј С‚Р°Р±Р»РёС†Сѓ Р°СЂС…РёРІР° РµСЃР»Рё РµС‘ РЅРµС‚
             result = conn.execute(sqlalchemy.text("""
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
@@ -153,10 +154,11 @@ async def startup():
                 conn.execute(sqlalchemy.text("CREATE INDEX idx_deleted_tickets_order_id ON deleted_tickets(order_id)"))
                 conn.execute(sqlalchemy.text("CREATE INDEX idx_deleted_tickets_deleted_at ON deleted_tickets(deleted_at)"))
                 conn.commit()
-                print("✅ Created table: deleted_tickets (archive)")
+                print("вњ… Created table: deleted_tickets (archive)")
             else:
-                print("✅ Table deleted_tickets already exists")
+                print("вњ… Table deleted_tickets already exists")
                 
     except Exception as e:
-        print(f"⚠️ DB init error: {e}")
+        print(f"вљ пёЏ DB init error: {e}")
+
 

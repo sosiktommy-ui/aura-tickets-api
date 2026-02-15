@@ -112,6 +112,7 @@ def get_tickets(
 def hide_tickets_from_managers(
     club_id: Optional[int] = None,
     city_name: Optional[str] = None,
+    country_code: Optional[str] = None,
     event_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -142,11 +143,15 @@ def hide_tickets_from_managers(
         # ПРИОРИТЕТ 3: Массовое скрытие по фильтрам
         else:
             # Требуем хотя бы один фильтр для безопасности
-            if not any([club_id, city_name, event_name, start_date]):
+            if not any([club_id, city_name, country_code, event_name, start_date]):
                 raise HTTPException(
                     status_code=400, 
                     detail="Для массового скрытия требуется указать хотя бы один фильтр"
                 )
+            
+            # Фильтр по стране
+            if country_code:
+                query = query.filter(Ticket.country_code == country_code)
             
             # Фильтр по городу (club_id или city_name)
             if club_id:
@@ -248,6 +253,7 @@ def show_tickets_to_managers(
 def delete_tickets_range(
     club_id: Optional[int] = None,
     city_name: Optional[str] = None,
+    country_code: Optional[str] = None,
     event_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -282,11 +288,15 @@ def delete_tickets_range(
         # ПРИОРИТЕТ 3: Массовое удаление по фильтрам (опасно!)
         else:
             # Требуем хотя бы один фильтр для безопасности
-            if not any([club_id, city_name, event_name, start_date]):
+            if not any([club_id, city_name, country_code, event_name, start_date]):
                 raise HTTPException(
                     status_code=400, 
-                    detail="Для массового удаления требуется указать хотя бы один фильтр (club_id, city_name, event_name или start_date)"
+                    detail="Для массового удаления требуется указать хотя бы один фильтр (club_id, city_name, country_code, event_name или start_date)"
                 )
+            
+            # Фильтр по стране
+            if country_code:
+                query = query.filter(Ticket.country_code == country_code)
             
             # Фильтр по городу
             if club_id:
