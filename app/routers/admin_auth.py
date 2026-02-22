@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin-auth"])
 
 # Password -> Role mapping (exact copy from admin_panel.py lines 145-180)
 
-SUPER_PASSWORDS = ["Dmitryganj1995", "ImprezaMaster2025"]
+SUPER_PASSWORDS = ["dmitryganj1995", "ImprezaMaster2025"]
 SUPER_OBSERVER_PASSWORD = "SuperView2025Archive"
 MANAGER_PASSWORD = "Coffee!8Night"
 OBSERVER_PASSWORDS = ["ObserverView2025", "WatchOnly2025"]
