@@ -88,7 +88,8 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
         )
     
     # Проверка: если билет скрыт от менеджеров — он "удалён" для сканера
-    if ticket.visible_to_managers == False:
+    # Админ может сканировать скрытые билеты
+    if ticket.visible_to_managers == False and not request.is_admin:
         log_scan(db, ticket.id, ticket.order_id, "invalid", request.scanner_id, "Hidden from managers", club_id=ticket.club_id)
         return VerifyResponse(
             status="invalid",

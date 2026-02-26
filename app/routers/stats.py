@@ -10,9 +10,13 @@ from app.schemas import StatsResponse
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 @router.get("/", response_model=StatsResponse)
-def get_stats(event_date: str = None, club_id: int = None, db: Session = Depends(get_db)):
+def get_stats(event_date: str = None, club_id: int = None, show_all_for_admin: bool = False, db: Session = Depends(get_db)):
     """IMPREZA: Добавлен параметр club_id для фильтрации"""
     query = db.query(Ticket)
+    
+    # Сканеры видят только видимые билеты (не скрытые)
+    if not show_all_for_admin:
+        query = query.filter(Ticket.visible_to_managers == True)
     
     if event_date:
         query = query.filter(Ticket.event_date.like(f"%{event_date}%"))

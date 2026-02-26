@@ -193,3 +193,69 @@ def update_club_password(club_id: int, data: dict):
     
     finally:
         db.close()
+
+
+@router.get("/add-fakeid")
+def add_fakeid_club():
+    """
+    Добавить клуб Fakeid для бренда Fake ID (одноразовая миграция)
+    Login: pl_fakeid
+    Password: fakeid_2025!Imp
+    """
+    import hashlib
+    
+    db = next(get_db())
+    
+    try:
+        # Проверяем, существует ли уже клуб
+        check_query = text("""
+            SELECT club_id FROM clubs WHERE login = 'pl_fakeid'
+        """)
+        result = db.execute(check_query)
+        
+        if result.fetchone():
+            return {"status": "exists", "message": "Клуб Fakeid уже существует"}
+        
+        # Получаем country_id для Польши
+        country_query = text("""
+            SELECT country_id FROM countries WHERE country_code = 'PL'
+        """)
+        country_result = db.execute(country_query)
+        country_row = country_result.fetchone()
+        
+        if not country_row:
+            return {"status": "error", "message": "Страна PL не найдена"}
+        
+        country_id = country_row[0]
+        
+        # Генерируем пароль
+        login = "pl_fakeid"
+        password = "fakeid_2025!Imp"
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        
+        # Вставляем клуб
+        insert_query = text("""
+            INSERT INTO clubs (country_id, city_name, city_english, login, password_hash, plain_password, is_active)
+            VALUES (:country_id, 'Fakeid', 'Fakeid', :login, :password_hash, :plain_password, TRUE)
+        """)
+        db.execute(insert_query, {
+            "country_id": country_id,
+            "login": login,
+            "password_hash": password_hash,
+            "plain_password": password
+        })
+        db.commit()
+        
+        return {
+            "status": "success", 
+            "message": "Клуб Fakeid добавлен",
+            "login": login,
+            "password": password
+        }
+        
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "message": str(e)}
+    
+    finally:
+        db.close()

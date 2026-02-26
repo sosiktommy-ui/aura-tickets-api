@@ -61,6 +61,7 @@ class TicketListResponse(BaseModel):
 class VerifyRequest(BaseModel):
     qr_data: str
     scanner_id: Optional[str] = "default"
+    is_admin: Optional[bool] = False
 
 class VerifyResponse(BaseModel):
     status: str
