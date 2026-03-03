@@ -7,11 +7,12 @@ from pydantic import BaseModel
 from app.database import get_db
 from app.models import Ticket, ScanHistory
 from app.schemas import HistoryResponse, HistoryItem
+from app.dependencies.auth import require_auth, require_role, AuthInfo
 
 router = APIRouter(prefix="/api/history", tags=["history"])
 
 @router.get("/", response_model=HistoryResponse)
-def get_history(event_date: str = None, limit: int = 100, db: Session = Depends(get_db)):
+def get_history(event_date: str = None, limit: int = 100, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_auth)):
     query = db.query(Ticket)
     
     if event_date:
@@ -54,7 +55,7 @@ def get_history(event_date: str = None, limit: int = 100, db: Session = Depends(
     )
 
 @router.delete("/")
-def delete_history(club_id: int, db: Session = Depends(get_db)):
+def delete_history(club_id: int, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_role("super"))):
     """Удаляет историю сканирования для конкретного клуба (города) - IMPREZA Multitenancy"""
     if not club_id:
         raise HTTPException(status_code=400, detail="club_id обязателен")
@@ -97,7 +98,8 @@ class HideDateRange(BaseModel):
 @router.post("/hide-for-managers")
 def hide_for_all_managers(
     date_range: HideDateRange,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
 ):
     """Скрывает записи от ВСЕХ менеджеров в выбранном диапазоне дат"""
     try:
@@ -129,7 +131,8 @@ def hide_for_all_managers(
 def hide_for_city_manager(
     club_id: int,
     date_range: HideDateRange,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("manager")),
 ):
     """Скрывает записи от менеджера конкретного города в выбранном диапазоне дат"""
     try:
@@ -164,7 +167,8 @@ def hide_for_city_manager(
 
 @router.post("/restore-hidden")
 def restore_all_hidden(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
 ):
     """Восстанавливает ВСЕ скрытые записи (делает видимыми для менеджеров)"""
     query = db.query(ScanHistory).filter(
@@ -192,7 +196,8 @@ def restore_all_hidden(
 @router.post("/restore-hidden/{club_id}")
 def restore_hidden_by_city(
     club_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("manager")),
 ):
     """Восстанавливает скрытые записи для конкретного города"""
     query = db.query(ScanHistory).filter(
@@ -229,7 +234,8 @@ class RestoreDateRange(BaseModel):
 @router.post("/restore-hidden-filtered")
 def restore_hidden_filtered(
     filters: RestoreDateRange,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("manager")),
 ):
     """Восстанавливает скрытые записи с фильтрами по дате и городу"""
     query = db.query(ScanHistory).filter(

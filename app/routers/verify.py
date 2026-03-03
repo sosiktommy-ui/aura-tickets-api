@@ -7,6 +7,10 @@ from app.database import get_db
 from app.models import Ticket, ScanHistory
 from app.schemas import VerifyRequest, VerifyResponse
 from app.security import parse_qr_data, verify_signature_from_qr
+from app.dependencies.auth import require_auth, AuthInfo
+
+import logging
+logger = logging.getLogger("impreza.security")
 
 router = APIRouter(prefix="/api", tags=["verify"])
 
@@ -62,13 +66,22 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
         if signature_valid:
             print(f"✅ [VERIFY] Подпись подтверждена по HMAC: {signature}")
     
-    # ★ ИСПРАВЛЕНО: Если билет НАЙДЕН в базе - он не поддельный, даже если подпись не совпала
-    # USB сканеры часто искажают кодировку кириллицы, что ломает HMAC
+    # ★ SECURITY FIX: Если подпись не совпала — логируем, но НЕ автоматически доверяем
     if not signature_valid:
         if ticket:
-            # Билет найден в базе - разрешаем, несмотря на несовпадение подписи
-            print(f"⚠️ [VERIFY] Подпись не совпала, но билет найден в БД - разрешаем: {order_id}")
-            signature_valid = True  # Доверяем базе данных
+            # Билет найден в базе, но подпись не совпала — возможно USB-сканер исказил кодировку
+            # Разрешаем ТОЛЬКО если token из QR совпадает с token в БД (дополнительная проверка)
+            if token and ticket.qr_token and token == ticket.qr_token:
+                logger.warning("Signature mismatch but token matches for order %s — allowing (USB encoding issue)", order_id)
+                signature_valid = True
+            else:
+                logger.warning("Signature AND token mismatch for order %s — rejecting", order_id)
+                log_scan(db, ticket.id, order_id, "forged", request.scanner_id, "Signature mismatch", club_id=ticket.club_id)
+                return VerifyResponse(
+                    status="invalid",
+                    message="Invalid ticket signature",
+                    data=qr_data
+                )
         else:
             # Билет НЕ найден в базе И подпись не валидна - это поддельный билет
             log_scan(db, None, order_id, "forged", request.scanner_id, "Invalid signature", club_id=None)
@@ -281,7 +294,8 @@ def log_denied_scan(request: LogDeniedRequest, db: Session = Depends(get_db)):
 def get_denied_scans(
     club_id: Optional[int] = None,
     limit: int = 100,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_auth),
 ):
     """
     Получить список denied сканов для отображения в красной вкладке.

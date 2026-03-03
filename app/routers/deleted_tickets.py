@@ -10,6 +10,7 @@ from datetime import datetime
 
 from app.database import get_db
 from app.models import Ticket, DeletedTicket, ScanHistory
+from app.dependencies.auth import require_auth, require_role, AuthInfo
 
 router = APIRouter(prefix="/api/deleted-tickets", tags=["deleted-tickets"])
 
@@ -21,7 +22,8 @@ def get_deleted_tickets(
     search: Optional[str] = None,
     limit: int = Query(default=500, le=2000),
     offset: int = 0,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super_observer")),
 ):
     """Получить список удалённых билетов"""
     try:
@@ -85,7 +87,8 @@ def get_deleted_tickets(
 @router.post("/{deleted_ticket_id}/restore")
 def restore_ticket(
     deleted_ticket_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
 ):
     """Восстановить билет из архива в основную таблицу"""
     try:
@@ -160,7 +163,8 @@ def restore_ticket(
 @router.delete("/{deleted_ticket_id}/permanent")
 def permanently_delete(
     deleted_ticket_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
 ):
     """Полностью удалить билет из архива (необратимо!)"""
     try:
@@ -186,7 +190,7 @@ def permanently_delete(
 
 
 @router.get("/stats")
-def get_deleted_stats(db: Session = Depends(get_db)):
+def get_deleted_stats(db: Session = Depends(get_db), auth: AuthInfo = Depends(require_role("super_observer"))):
     """Статистика удалённых билетов"""
     try:
         total = db.query(DeletedTicket).count()
@@ -223,7 +227,8 @@ def get_all_tickets_with_deleted(
     filter_mode: str = Query(default="all", description="all | deleted | active"),
     limit: int = Query(default=10000, le=50000),
     offset: int = 0,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super_observer")),
 ):
     """Получить ВСЕ билеты (активные + удалённые) для Super Observer
     

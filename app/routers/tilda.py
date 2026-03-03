@@ -3,15 +3,17 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Dict, Any, Optional
 import logging
+import hmac
+import hashlib
 
 from app.database import get_db
 from app.models import Ticket
 from app.schemas import TicketCreate, TicketResponse
 from app.security import generate_token, generate_signature
+from app.config import settings
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("impreza.security")
 
 router = APIRouter(prefix="/api/tilda", tags=["tilda"])
 
@@ -107,26 +109,17 @@ async def tilda_webhook(
     db: Session = Depends(get_db)
 ):
     """
-    Webhook endpoint для получения заказов от Tilda
-    
-    Ожидаемый формат данных от Tilda:
-    {
-        "orderid": "12345",
-        "tranid": "T-67890",
-        "name": "Иван Иванов", 
-        "email": "ivan@example.com",
-        "phone": "+7900123456",
-        "amount": "1500.00",
-        "status": "confirmed",
-        "ticket_type": "VIP",
-        "event_date": "25.12",
-        "event_name": "New Year Party",
-        "city": "Moscow",
-        "country": "RU",
-        "club_id": "1",
-        "promocode": "SAVE20"
-    }
+    Webhook endpoint для получения заказов от Tilda.
+    Защищён проверкой секрета (X-Tilda-Secret header).
     """
+    # ─── Проверка webhook secret ───
+    webhook_secret = settings.TILDA_WEBHOOK_SECRET
+    if webhook_secret:
+        incoming_secret = request.headers.get("X-Tilda-Secret", "")
+        if not hmac.compare_digest(incoming_secret, webhook_secret):
+            logger.warning("Tilda webhook: invalid secret from %s", request.client.host if request.client else "unknown")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook secret")
+    
     try:
         # Получаем данные от Tilda
         if request.headers.get("content-type") == "application/json":
@@ -175,45 +168,5 @@ async def tilda_webhook(
         logger.error(f"Error processing Tilda webhook: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
+            detail="Webhook processing error"
         )
-
-@router.get("/test", status_code=status.HTTP_200_OK)
-def test_endpoint():
-    """Тестовый endpoint для проверки работы Tilda роутера"""
-    return {
-        "status": "ok",
-        "message": "Tilda webhook endpoint is working",
-        "endpoint": "/api/tilda/webhook"
-    }
-
-@router.post("/test-webhook", status_code=status.HTTP_200_OK) 
-async def test_webhook(request: Request, db: Session = Depends(get_db)):
-    """Тестовый webhook с примером данных"""
-    test_data = {
-        "orderid": f"TEST-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-        "tranid": f"T-{datetime.now().strftime('%H%M%S')}",
-        "name": "Тестовый Пользователь",
-        "email": "test@example.com", 
-        "phone": "+7900123456",
-        "amount": "1000.00",
-        "status": "confirmed",
-        "ticket_type": "Standard",
-        "event_date": "31.12",
-        "event_name": "Test Event",
-        "city": "Moscow",
-        "country": "RU",
-        "club_id": "1",
-        "promocode": ""
-    }
-    
-    webhook_data = TildaWebhookData(test_data)
-    ticket = process_tilda_order(webhook_data, db)
-    
-    return {
-        "status": "test_success",
-        "ticket_id": ticket.id,
-        "order_id": ticket.order_id,
-        "qr_token": ticket.qr_token,
-        "test_data": test_data
-    }

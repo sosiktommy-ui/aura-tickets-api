@@ -1,56 +1,85 @@
 ﻿"""
 IMPREZA Admin Panel - Server-side authentication
 JWT-based login for the web admin panel.
-Replicates check_role() logic from admin_panel.py exactly.
+Passwords loaded from ADMIN_PASSWORDS env variable.
 """
 
-from fastapi import APIRouter, HTTPException
+import logging
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import jwt
 
 from app.config import settings
+from app.dependencies.auth import require_auth, require_role, AuthInfo
+
+logger = logging.getLogger("impreza.security")
 
 router = APIRouter(prefix="/api/admin", tags=["admin-auth"])
 
-# Password -> Role mapping (exact copy from admin_panel.py lines 145-180)
-
-SUPER_PASSWORDS = ["dmitryganj1995", "ImprezaMaster2025"]
-SUPER_OBSERVER_PASSWORD = "SuperView2025Archive"
-MANAGER_PASSWORD = "Coffee!8Night"
-OBSERVER_PASSWORDS = ["ObserverView2025", "WatchOnly2025"]
-
-COUNTRY_MANAGER_ACCOUNTS = {
-    "KatyaBG2025!": {
-        "name": "Катя",
-        "countries": ["BG", "NL", "DE"],
-    },
-    "FedorPL2025!": {
-        "name": "Фёдор",
-        "countries": ["PL"],
-    },
-}
-
-ALL_MANAGER_PASSWORDS = SUPER_PASSWORDS + [MANAGER_PASSWORD] + list(COUNTRY_MANAGER_ACCOUNTS.keys())
+# ─── Password -> Role mapping loaded from env ───
+# Env ADMIN_PASSWORDS format (JSON):
+# {
+#   "super": ["pass1", "pass2"],
+#   "super_observer": ["pass3"],
+#   "manager": ["pass4"],
+#   "observer": ["pass5", "pass6"],
+#   "country_manager": {
+#     "pass7": {"name": "Катя", "countries": ["BG", "NL", "DE"]},
+#     "pass8": {"name": "Фёдор", "countries": ["PL"]}
+#   }
+# }
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
 
 
+def _get_passwords() -> dict:
+    """Load passwords from env. Returns parsed dict."""
+    return settings.get_admin_passwords()
+
+
 def check_role(password: str):
-    """Определить роль по паролю - точная копия из admin_panel.py"""
-    if password in SUPER_PASSWORDS:
+    """Определить роль по паролю из env-переменной ADMIN_PASSWORDS."""
+    pw_config = _get_passwords()
+    if not pw_config:
+        return None
+
+    # super passwords
+    if password in pw_config.get("super", []):
         return "super"
-    elif password == SUPER_OBSERVER_PASSWORD:
+
+    # super_observer
+    if password in pw_config.get("super_observer", []):
         return "super_observer"
-    elif password == MANAGER_PASSWORD:
+
+    # manager
+    if password in pw_config.get("manager", []):
         return "manager"
-    elif password in OBSERVER_PASSWORDS:
+
+    # observer
+    if password in pw_config.get("observer", []):
         return "observer"
-    elif password in COUNTRY_MANAGER_ACCOUNTS:
+
+    # country_manager (dict of password -> {name, countries})
+    cm = pw_config.get("country_manager", {})
+    if isinstance(cm, dict) and password in cm:
         return "country_manager"
+
     return None
+
+
+def _get_all_manager_passwords() -> list[str]:
+    """Return list of all passwords that count as manager-level (for check-password)."""
+    pw_config = _get_passwords()
+    result = []
+    result.extend(pw_config.get("super", []))
+    result.extend(pw_config.get("manager", []))
+    cm = pw_config.get("country_manager", {})
+    if isinstance(cm, dict):
+        result.extend(cm.keys())
+    return result
 
 
 def create_jwt_token(payload: dict) -> str:
@@ -111,6 +140,7 @@ def admin_login(req: AdminLoginRequest):
     """
     role = check_role(req.password)
     if role is None:
+        logger.warning("Failed admin login attempt from password: ***")
         raise HTTPException(status_code=401, detail="Неверный пароль")
 
     payload = {"role": role}
@@ -118,9 +148,11 @@ def admin_login(req: AdminLoginRequest):
     allowed_countries = None
 
     if role == "country_manager":
-        account = COUNTRY_MANAGER_ACCOUNTS[req.password]
-        name = account["name"]
-        allowed_countries = account["countries"]
+        pw_config = _get_passwords()
+        cm = pw_config.get("country_manager", {})
+        account = cm.get(req.password, {})
+        name = account.get("name")
+        allowed_countries = account.get("countries")
         payload["name"] = name
         payload["allowed_countries"] = allowed_countries
 
@@ -156,10 +188,15 @@ def admin_verify_get(token: str = ""):
 
 
 @router.post("/check-password", response_model=PasswordCheckResponse)
-def admin_check_password(req: PasswordCheckRequest):
+def admin_check_password(
+    req: PasswordCheckRequest,
+    auth: AuthInfo = Depends(require_auth),
+):
     """
     Check if a password is a valid manager-level password.
     Used for confirming dangerous operations (delete, status change, etc.)
+    Requires authenticated session (JWT or API Key).
     """
-    is_valid = req.password in ALL_MANAGER_PASSWORDS
+    manager_passwords = _get_all_manager_passwords()
+    is_valid = req.password in manager_passwords
     return PasswordCheckResponse(valid=is_valid, is_manager=is_valid)

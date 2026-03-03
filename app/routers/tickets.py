@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -8,6 +10,9 @@ from app.database import get_db
 from app.models import Ticket, ScanHistory
 from app.schemas import TicketCreate, TicketResponse, TicketListResponse
 from app.security import generate_token, generate_signature
+from app.dependencies.auth import require_auth, require_role, AuthInfo
+
+logger = logging.getLogger("impreza.security")
 
 def convert_date_for_db_filter(date_str: str) -> str:
     """Конвертирует дату YYYY-MM-DD в формат для сравнения с event_date в базе (DD.MM)"""
@@ -17,7 +22,7 @@ def convert_date_for_db_filter(date_str: str) -> str:
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
 @router.post("/", response_model=TicketResponse, status_code=status.HTTP_201_CREATED)
-def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
+def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_auth)):
     existing = db.query(Ticket).filter(Ticket.order_id == ticket.order_id).first()
     if existing:
         raise HTTPException(
@@ -66,9 +71,10 @@ def get_tickets(
     status_filter: str = None,
     club_id: int = None,
     show_all_for_admin: bool = False,
-    limit: int = 10000000,
+    limit: int = 10000,
     offset: int = 0,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_auth),
 ):
     query = db.query(Ticket)
     
@@ -116,9 +122,10 @@ def hide_tickets_from_managers(
     event_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    ticket_id: Optional[int] = None,  # КРИТИЧЕСКИ ВАЖНО: ID конкретного билета
-    ticket_ids: Optional[str] = None,  # Список ID через запятую: "1,2,3"
-    db: Session = Depends(get_db)
+    ticket_id: Optional[int] = None,
+    ticket_ids: Optional[str] = None,
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("manager")),
 ):
     """Скрыть билеты от менеджеров (visible_to_managers = false)
     
@@ -186,7 +193,8 @@ def hide_tickets_from_managers(
 
 @router.get("/hidden-events")
 def get_hidden_events(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("manager")),
 ):
     """Получить список скрытых мероприятий (уникальные event_name со скрытыми билетами)"""
     try:
@@ -221,7 +229,8 @@ def show_tickets_to_managers(
     club_id: Optional[int] = None,
     city_name: Optional[str] = None,
     event_name: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("manager")),
 ):
     """Восстановить скрытые билеты (visible_to_managers = true)"""
     try:
@@ -257,10 +266,11 @@ def delete_tickets_range(
     event_name: Optional[str] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    ticket_id: Optional[int] = None,  # КРИТИЧЕСКИ ВАЖНО: ID конкретного билета
-    ticket_ids: Optional[str] = None,  # Список ID через запятую: "1,2,3"
-    deleted_by: Optional[str] = None,  # Кто удаляет (для аудита)
-    db: Session = Depends(get_db)
+    ticket_id: Optional[int] = None,
+    ticket_ids: Optional[str] = None,
+    deleted_by: Optional[str] = None,
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
 ):
     """Удалить билеты — сначала архивируем в deleted_tickets, потом удаляем
     
@@ -389,7 +399,7 @@ def delete_tickets_range(
 
 
 @router.get("/{order_id}", response_model=TicketResponse)
-def get_ticket(order_id: str, db: Session = Depends(get_db)):
+def get_ticket(order_id: str, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_auth)):
     ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
     
     if not ticket:
@@ -405,7 +415,8 @@ def update_ticket_by_id(
     first_scan_at: Optional[str] = None,
     scan_count: Optional[int] = None,
     visible_to_managers: Optional[bool] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("manager")),
 ):
     """Обновить билет по database ID (не order_id!)
     
@@ -456,7 +467,7 @@ def update_ticket_by_id(
 
 
 @router.get("/token/{token}", response_model=TicketResponse)
-def get_ticket_by_token(token: str, db: Session = Depends(get_db)):
+def get_ticket_by_token(token: str, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_auth)):
     ticket = db.query(Ticket).filter(Ticket.qr_token == token).first()
     
     if not ticket:
@@ -466,7 +477,7 @@ def get_ticket_by_token(token: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/{order_id}/cancel")
-def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
+def cancel_ticket(order_id: str, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_role("manager"))):
     ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
     
     if not ticket:
@@ -479,7 +490,7 @@ def cancel_ticket(order_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/{order_id}/scan")
-def increment_scan_count(order_id: str, db: Session = Depends(get_db)):
+def increment_scan_count(order_id: str, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_auth)):
     """Увеличить счётчик сканирований билета (для HMAC fallback)
     
     Используется когда билет найден в базе, но HMAC подпись не совпала.
@@ -528,7 +539,7 @@ def increment_scan_count(order_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/{order_id}/status")
-def change_ticket_status(order_id: str, data: dict, db: Session = Depends(get_db)):
+def change_ticket_status(order_id: str, data: dict, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_role("manager"))):
     """Изменить статус билета вручную (для менеджера/админа)
     
     Принимает: {"status": "valid" | "used" | "cancelled", "scan_count": int (опционально)}
@@ -569,7 +580,7 @@ def change_ticket_status(order_id: str, data: dict, db: Session = Depends(get_db
 
 
 @router.put("/{order_id}/hide")
-def hide_ticket(order_id: str, db: Session = Depends(get_db)):
+def hide_ticket(order_id: str, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_role("manager"))):
     """Скрыть билет от менеджера (visible_to_managers = false)"""
     ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
     
@@ -587,7 +598,7 @@ def hide_ticket(order_id: str, db: Session = Depends(get_db)):
 
 
 @router.patch("/{order_id}/reset-expiration")
-def reset_ticket_expiration(order_id: str, db: Session = Depends(get_db)):
+def reset_ticket_expiration(order_id: str, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_role("manager"))):
     """Сбросить истечение билета - обновить first_scan_at на текущее время"""
     ticket = db.query(Ticket).filter(Ticket.order_id == order_id).first()
     
@@ -613,7 +624,8 @@ def delete_tickets_by_club(
     club_id: int = None, 
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
 ):
     """Удаляет билеты для конкретного клуба или все билеты с поддержкой диапазона дат"""
     try:
@@ -677,7 +689,8 @@ def delete_tickets_by_club_id(
     club_id: int,
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
 ):
     """Удаляет билеты для конкретного клуба с поддержкой диапазона дат"""
     try:
@@ -733,8 +746,9 @@ def delete_tickets_by_club_id(
 
 
 @router.delete("/all")
-def delete_all_tickets(db: Session = Depends(get_db)):
-    """Удаляет ВСЕ билеты из базы данных"""
+def delete_all_tickets(db: Session = Depends(get_db), auth: AuthInfo = Depends(require_role("super"))):
+    """Удаляет ВСЕ билеты из базы данных. Requires super admin."""
+    logger.warning("DELETE ALL TICKETS requested by %s (role=%s)", auth.name, auth.role)
     try:
         count = db.query(Ticket).count()
         
@@ -753,7 +767,7 @@ def delete_all_tickets(db: Session = Depends(get_db)):
 
 
 @router.put("/fix-club-ids")
-def fix_club_ids(db: Session = Depends(get_db)):
+def fix_club_ids(db: Session = Depends(get_db), auth: AuthInfo = Depends(require_role("super"))):
     """Исправляет club_id для всех билетов на основе city_name.
     Маппинг city_name (английское название) → club_id из таблицы clubs.
     """
@@ -811,7 +825,8 @@ def fix_club_ids(db: Session = Depends(get_db)):
 def delete_tickets_by_event(
     event_name: str = Query(..., description="Название мероприятия"),
     deleted_by: str = Query(default="admin_panel", description="Кто удалил"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
 ):
     """Удалить все билеты по event_name — с архивированием в deleted_tickets"""
     

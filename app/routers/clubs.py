@@ -1,86 +1,22 @@
 """
 IMPREZA: Эндпоинт для получения списка всех клубов/городов
 """
-from fastapi import APIRouter, HTTPException
+import logging
+
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from app.database import get_db
+from app.dependencies.auth import require_auth, require_role, AuthInfo
+
+logger = logging.getLogger("impreza.security")
 
 router = APIRouter(prefix="/clubs", tags=["clubs"])
 
 
-@router.get("/migrate-plain-password")
-def migrate_plain_password():
-    """Добавить колонку plain_password в таблицу clubs (одноразовая миграция)"""
-    db = next(get_db())
-    
-    try:
-        # Проверяем, существует ли уже колонка
-        check_query = text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'clubs' AND column_name = 'plain_password'
-        """)
-        result = db.execute(check_query)
-        
-        if result.fetchone():
-            return {"status": "exists", "message": "Колонка plain_password уже существует"}
-        
-        # Добавляем колонку
-        alter_query = text("""
-            ALTER TABLE clubs 
-            ADD COLUMN plain_password VARCHAR(255)
-        """)
-        db.execute(alter_query)
-        db.commit()
-        
-        return {"status": "success", "message": "Колонка plain_password добавлена"}
-        
-    except Exception as e:
-        db.rollback()
-        return {"status": "error", "message": str(e)}
-    
-    finally:
-        db.close()
-
-
-@router.get("/migrate-subtotal")
-def migrate_subtotal():
-    """Добавить колонку subtotal в таблицу tickets (одноразовая миграция)"""
-    db = next(get_db())
-    
-    try:
-        # Проверяем, существует ли уже колонка
-        check_query = text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'tickets' AND column_name = 'subtotal'
-        """)
-        result = db.execute(check_query)
-        
-        if result.fetchone():
-            return {"status": "exists", "message": "Колонка subtotal уже существует"}
-        
-        # Добавляем колонку
-        alter_query = text("""
-            ALTER TABLE tickets 
-            ADD COLUMN subtotal FLOAT DEFAULT 0
-        """)
-        db.execute(alter_query)
-        db.commit()
-        
-        return {"status": "success", "message": "Колонка subtotal добавлена"}
-        
-    except Exception as e:
-        db.rollback()
-        return {"status": "error", "message": str(e)}
-    
-    finally:
-        db.close()
-
-
 @router.get("/")
-def get_all_clubs():
-    """Получить список всех клубов для админ панели"""
+def get_all_clubs(auth: AuthInfo = Depends(require_auth)):
+    """Получить список всех клубов для админ панели.
+    Пароли НЕ возвращаются."""
     db = next(get_db())
     
     try:
@@ -91,9 +27,7 @@ def get_all_clubs():
                 c.city_english,
                 co.country_code,
                 c.login,
-                c.password_hash,
-                c.is_active,
-                c.plain_password
+                c.is_active
             FROM clubs c
             JOIN countries co ON c.country_id = co.country_id
             ORDER BY co.country_code, c.city_name
@@ -109,9 +43,7 @@ def get_all_clubs():
                 "city_english": row[2],
                 "country_code": row[3],
                 "login": row[4],
-                "password_hash": row[5],
-                "is_active": row[6],
-                "plain_password": row[7]
+                "is_active": row[5],
             })
         
         return {"clubs": clubs}
@@ -120,75 +52,9 @@ def get_all_clubs():
         db.close()
 
 
-@router.get("/add-fakeid")
-def add_fakeid_club():
-    """
-    Добавить клуб Fakeid для бренда Fake ID (одноразовая миграция)
-    Login: pl_fakeid
-    Password: fakeid_2025!Imp
-    """
-    import hashlib
-    
-    db = next(get_db())
-    
-    try:
-        # Проверяем, существует ли уже клуб
-        check_query = text("""
-            SELECT club_id FROM clubs WHERE login = 'pl_fakeid'
-        """)
-        result = db.execute(check_query)
-        
-        if result.fetchone():
-            return {"status": "exists", "message": "Клуб Fakeid уже существует"}
-        
-        # Получаем country_id для Польши
-        country_query = text("""
-            SELECT country_id FROM countries WHERE country_code = 'PL'
-        """)
-        country_result = db.execute(country_query)
-        country_row = country_result.fetchone()
-        
-        if not country_row:
-            return {"status": "error", "message": "Страна PL не найдена"}
-        
-        country_id = country_row[0]
-        
-        # Генерируем пароль
-        login = "pl_fakeid"
-        password = "fakeid_2025!Imp"
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        
-        # Вставляем клуб
-        insert_query = text("""
-            INSERT INTO clubs (country_id, city_name, city_english, login, password_hash, plain_password, is_active)
-            VALUES (:country_id, 'Fakeid', 'Fakeid', :login, :password_hash, :plain_password, TRUE)
-        """)
-        db.execute(insert_query, {
-            "country_id": country_id,
-            "login": login,
-            "password_hash": password_hash,
-            "plain_password": password
-        })
-        db.commit()
-        
-        return {
-            "status": "success", 
-            "message": "Клуб Fakeid добавлен",
-            "login": login,
-            "password": password
-        }
-        
-    except Exception as e:
-        db.rollback()
-        return {"status": "error", "message": str(e)}
-    
-    finally:
-        db.close()
-
-
 @router.get("/{club_id}")
-def get_club_by_id(club_id: int):
-    """Получить информацию о конкретном клубе по ID"""
+def get_club_by_id(club_id: int, auth: AuthInfo = Depends(require_auth)):
+    """Получить информацию о конкретном клубе по ID. Пароли НЕ возвращаются."""
     db = next(get_db())
     
     try:
@@ -199,7 +65,6 @@ def get_club_by_id(club_id: int):
                 c.city_english,
                 co.country_code,
                 c.login,
-                c.password_hash,
                 c.is_active
             FROM clubs c
             JOIN countries co ON c.country_id = co.country_id
@@ -218,8 +83,7 @@ def get_club_by_id(club_id: int):
             "city_english": row[2],
             "country_code": row[3],
             "login": row[4],
-            "password": row[5],  # Возвращаем как "password" для совместимости
-            "is_active": row[6]
+            "is_active": row[5],
         }
     
     finally:
@@ -227,13 +91,14 @@ def get_club_by_id(club_id: int):
 
 
 @router.put("/{club_id}/password")
-def update_club_password(club_id: int, data: dict):
-    """Обновить пароль клуба (только для админа)"""
+def update_club_password(club_id: int, data: dict, auth: AuthInfo = Depends(require_role("super"))):
+    """Обновить пароль клуба (только для super admin)"""
+    logger.info("Club %s password updated by %s", club_id, auth.name)
     db = next(get_db())
     
     try:
         password_hash = data.get("password_hash")
-        plain_password = data.get("plain_password")  # Получаем plain-text пароль
+        plain_password = data.get("plain_password")
         if not password_hash:
             raise HTTPException(status_code=400, detail="password_hash required")
         
@@ -253,9 +118,11 @@ def update_club_password(club_id: int, data: dict):
         
         return {"success": True, "message": "Password updated"}
     
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
     
     finally:
         db.close()

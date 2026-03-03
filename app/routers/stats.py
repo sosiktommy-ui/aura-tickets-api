@@ -6,11 +6,12 @@ from datetime import date
 from app.database import get_db
 from app.models import Ticket, ScanHistory
 from app.schemas import StatsResponse
+from app.dependencies.auth import require_auth, AuthInfo
 
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 @router.get("/", response_model=StatsResponse)
-def get_stats(event_date: str = None, club_id: int = None, show_all_for_admin: bool = False, db: Session = Depends(get_db)):
+def get_stats(event_date: str = None, club_id: int = None, show_all_for_admin: bool = False, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_auth)):
     """IMPREZA: Добавлен параметр club_id для фильтрации"""
     query = db.query(Ticket)
     

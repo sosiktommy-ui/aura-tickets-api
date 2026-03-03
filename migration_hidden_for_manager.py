@@ -7,7 +7,9 @@ import os
 
 def run_migration():
     # Railway PostgreSQL подключение
-    DATABASE_URL = os.getenv("DATABASE_URL") or "postgresql://postgres:nWDfNeMpeSAgjaWnxVVkYKOaKQGkJcnL@metro.proxy.rlwy.net:20356/railway"
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    if not DATABASE_URL:
+        raise ValueError("DATABASE_URL environment variable is required")
     
     try:
         conn = psycopg2.connect(DATABASE_URL)

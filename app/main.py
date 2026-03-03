@@ -1,16 +1,36 @@
-﻿from fastapi import FastAPI
+﻿import logging
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import os
+
+from app.config import settings
+
+# ─── Logging ───
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("impreza.security")
+
+# ─── Rate Limiter ───
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 
 app = FastAPI(
     title="AURA Tickets API",
-    description="API РґР»СЏ СЃРёСЃС‚РµРјС‹ Р±РёР»РµС‚РѕРІ AURA",
-    version="1.0.0"
+    description="API для системы билетов AURA",
+    version="2.0.0"
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ─── CORS: только разрешённые домены ───
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -23,33 +43,7 @@ def health_check():
 
 @app.get("/")
 def root():
-    return {"service": "AURA Tickets API", "version": "1.0.0", "docs": "/docs"}
-
-# Р”РёР°РіРЅРѕСЃС‚РёРєР° Р‘Р”
-@app.get("/debug/db")
-def debug_db():
-    """РџСЂРѕРІРµСЂРєР° РїРѕРґРєР»СЋС‡РµРЅРёСЏ Рє Р±Р°Р·Рµ РґР°РЅРЅС‹С…"""
-    try:
-        from app.database import engine
-        from app.config import settings
-        import sqlalchemy
-        
-        # РџСЂРѕР±СѓРµРј РїРѕРґРєР»СЋС‡РёС‚СЊСЃСЏ
-        with engine.connect() as conn:
-            result = conn.execute(sqlalchemy.text("SELECT 1"))
-            result.fetchone()
-        
-        return {
-            "status": "connected",
-            "database_url": settings.DATABASE_URL[:50] + "..." if len(settings.DATABASE_URL) > 50 else settings.DATABASE_URL,
-            "message": "Database connection successful"
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "error_type": type(e).__name__
-        }
+    return {"service": "AURA Tickets API", "version": "2.0.0", "docs": "/docs"}
 
 # Р РѕСѓС‚РµСЂС‹ РїРѕРґРєР»СЋС‡Р°РµРј РїРѕСЃР»Рµ
 from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets, admin_auth  # IMPREZA: РґРѕР±Р°РІР»РµРЅ deleted_tickets
