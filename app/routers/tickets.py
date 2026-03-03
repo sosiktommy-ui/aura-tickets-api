@@ -10,7 +10,7 @@ from app.database import get_db
 from app.models import Ticket, ScanHistory
 from app.schemas import TicketCreate, TicketResponse, TicketListResponse
 from app.security import generate_token, generate_signature
-from app.dependencies.auth import require_auth, require_role, AuthInfo
+from app.dependencies.auth import require_auth, require_role, get_optional_auth, AuthInfo
 
 logger = logging.getLogger("impreza.security")
 
@@ -22,7 +22,7 @@ def convert_date_for_db_filter(date_str: str) -> str:
 router = APIRouter(prefix="/api/tickets", tags=["tickets"])
 
 @router.post("/", response_model=TicketResponse, status_code=status.HTTP_201_CREATED)
-def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_auth)):
+def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db), auth: Optional[AuthInfo] = Depends(get_optional_auth)):
     existing = db.query(Ticket).filter(Ticket.order_id == ticket.order_id).first()
     if existing:
         raise HTTPException(

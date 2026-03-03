@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy import text
 from app.database import get_db
-from app.dependencies.auth import require_auth, require_role, AuthInfo
+from app.dependencies.auth import require_auth, require_role, get_optional_auth, AuthInfo
 
 logger = logging.getLogger("impreza.security")
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/clubs", tags=["clubs"])
 
 
 @router.get("/")
-def get_all_clubs(auth: AuthInfo = Depends(require_auth)):
+def get_all_clubs(auth: AuthInfo = Depends(get_optional_auth)):
     """Получить список всех клубов для админ панели.
     Пароли НЕ возвращаются."""
     db = next(get_db())
