@@ -60,6 +60,13 @@ def _decode_jwt(token: str) -> Optional[dict]:
             settings.API_SECRET_KEY,
             algorithms=[JWT_ALGORITHM],
         )
+        # Проверяем min_iat — отклоняем токены, выпущенные до катоффа
+        min_iat = int(settings.JWT_MIN_IAT or "0")
+        if min_iat > 0:
+            token_iat = payload.get("iat", 0)
+            if isinstance(token_iat, (int, float)) and token_iat < min_iat:
+                logger.warning("Token rejected: iat=%s < min_iat=%s", token_iat, min_iat)
+                return None
         return payload
     except jwt.ExpiredSignatureError:
         return None

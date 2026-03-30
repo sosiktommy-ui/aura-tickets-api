@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     QR_SECRET_KEY: str = os.getenv("QR_SECRET_KEY", "CHANGE_ME_IN_PRODUCTION")
     INTERNAL_API_KEY: str = os.getenv("INTERNAL_API_KEY", "")
     TILDA_WEBHOOK_SECRET: str = os.getenv("TILDA_WEBHOOK_SECRET", "")
+    # ─── Минимальный iat для JWT (для инвалидации старых токенов) ───
+    JWT_MIN_IAT: str = os.getenv("JWT_MIN_IAT", "0")
     ALLOWED_ORIGINS: str = os.getenv(
         "ALLOWED_ORIGINS",
         "http://localhost:5173,http://localhost:3000"

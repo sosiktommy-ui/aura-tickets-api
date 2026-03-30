@@ -16,35 +16,54 @@ router = APIRouter(prefix="/clubs", tags=["clubs"])
 @router.get("/")
 def get_all_clubs(auth: AuthInfo = Depends(require_auth)):
     """Получить список всех клубов для админ панели.
-    Пароли НЕ возвращаются."""
+    plain_password возвращается только для super admin."""
     db = next(get_db())
+    is_super = auth.role == "super"
     
     try:
-        query = text("""
-            SELECT 
-                c.club_id as id,
-                c.city_name,
-                c.city_english,
-                co.country_code,
-                c.login,
-                c.is_active
-            FROM clubs c
-            JOIN countries co ON c.country_id = co.country_id
-            ORDER BY co.country_code, c.city_name
-        """)
+        if is_super:
+            query = text("""
+                SELECT 
+                    c.club_id as id,
+                    c.city_name,
+                    c.city_english,
+                    co.country_code,
+                    c.login,
+                    c.is_active,
+                    c.plain_password
+                FROM clubs c
+                JOIN countries co ON c.country_id = co.country_id
+                ORDER BY co.country_code, c.city_name
+            """)
+        else:
+            query = text("""
+                SELECT 
+                    c.club_id as id,
+                    c.city_name,
+                    c.city_english,
+                    co.country_code,
+                    c.login,
+                    c.is_active
+                FROM clubs c
+                JOIN countries co ON c.country_id = co.country_id
+                ORDER BY co.country_code, c.city_name
+            """)
         
         result = db.execute(query)
         clubs = []
         
         for row in result:
-            clubs.append({
+            club = {
                 "id": row[0],
                 "city_name": row[1],
                 "city_english": row[2],
                 "country_code": row[3],
                 "login": row[4],
                 "is_active": row[5],
-            })
+            }
+            if is_super and len(row) > 6:
+                club["plain_password"] = row[6]
+            clubs.append(club)
         
         return {"clubs": clubs}
     
@@ -92,15 +111,28 @@ def get_club_by_id(club_id: int, auth: AuthInfo = Depends(require_auth)):
 
 @router.put("/{club_id}/password")
 def update_club_password(club_id: int, data: dict, auth: AuthInfo = Depends(require_role("super"))):
-    """Обновить пароль клуба (только для super admin)"""
+    """Обновить пароль клуба (только для super admin).
+    Принимает:
+      - {new_password: "..."} — хеш считается на сервере (веб-панель)
+      - {password_hash: "...", plain_password: "..."} — старый формат (десктоп)
+    """
+    import hashlib
     logger.info("Club %s password updated by %s", club_id, auth.name)
     db = next(get_db())
     
     try:
-        password_hash = data.get("password_hash")
-        plain_password = data.get("plain_password")
+        new_password = data.get("new_password")
+        if new_password:
+            # Веб-панель: приходит простой пароль, хешируем на сервере
+            password_hash = hashlib.sha256(new_password.encode()).hexdigest()
+            plain_password = new_password
+        else:
+            # Десктоп: приходит готовый хеш
+            password_hash = data.get("password_hash")
+            plain_password = data.get("plain_password")
+
         if not password_hash:
-            raise HTTPException(status_code=400, detail="password_hash required")
+            raise HTTPException(status_code=400, detail="new_password or password_hash required")
         
         query = text("""
             UPDATE clubs 

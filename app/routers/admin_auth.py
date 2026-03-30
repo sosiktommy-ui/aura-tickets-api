@@ -40,8 +40,18 @@ def _get_passwords() -> dict:
     return settings.get_admin_passwords()
 
 
+# Заблокированные пароли — НИКОГДА не принимаются, даже если остались в env
+DENIED_PASSWORDS = {
+    "ImprezaMaster2025",
+}
+
+
 def check_role(password: str):
     """Определить роль по паролю из env-переменной ADMIN_PASSWORDS."""
+    if password in DENIED_PASSWORDS:
+        logger.warning("Blocked login attempt with revoked password")
+        return None
+
     pw_config = _get_passwords()
     if not pw_config:
         return None
@@ -79,7 +89,7 @@ def _get_all_manager_passwords() -> list[str]:
     cm = pw_config.get("country_manager", {})
     if isinstance(cm, dict):
         result.extend(cm.keys())
-    return result
+    return [p for p in result if p not in DENIED_PASSWORDS]
 
 
 def create_jwt_token(payload: dict) -> str:

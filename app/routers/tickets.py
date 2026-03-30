@@ -229,22 +229,48 @@ def show_tickets_to_managers(
     club_id: Optional[int] = None,
     city_name: Optional[str] = None,
     event_name: Optional[str] = None,
+    ticket_id: Optional[int] = None,
+    ticket_ids: Optional[str] = None,
+    order_id: Optional[str] = None,
     db: Session = Depends(get_db),
     auth: AuthInfo = Depends(require_role("manager")),
 ):
-    """Восстановить скрытые билеты (visible_to_managers = true)"""
+    """Восстановить скрытые билеты (visible_to_managers = true)
+    
+    ВАЖНО: Если указан ticket_id, ticket_ids или order_id, восстанавливаются ТОЛЬКО эти билеты!
+    """
     try:
         query = db.query(Ticket).filter(Ticket.visible_to_managers == False)
         
-        # Фильтр по городу (club_id или city_name)
-        if club_id:
-            query = query.filter(Ticket.club_id == club_id)
-        elif city_name:
-            query = query.filter(Ticket.city_name == city_name)
+        # ПРИОРИТЕТ 1: Если указан order_id (номер заказа) — восстанавливаем ТОЛЬКО его
+        if order_id:
+            query = query.filter(Ticket.order_id == order_id)
+            print(f"👁️ Восстановление билета по order_id={order_id}")
         
-        # Фильтр по мероприятию
-        if event_name:
-            query = query.filter(Ticket.event_name == event_name)
+        # ПРИОРИТЕТ 2: Если указан конкретный ticket_id — восстанавливаем ТОЛЬКО его
+        elif ticket_id:
+            query = query.filter(Ticket.id == ticket_id)
+            print(f"👁️ Восстановление конкретного билета ID={ticket_id}")
+        
+        # ПРИОРИТЕТ 3: Если указан список ticket_ids — восстанавливаем ТОЛЬКО их
+        elif ticket_ids:
+            ids_list = [int(x.strip()) for x in ticket_ids.split(",") if x.strip().isdigit()]
+            if not ids_list:
+                raise HTTPException(status_code=400, detail="Неверный формат ticket_ids")
+            query = query.filter(Ticket.id.in_(ids_list))
+            print(f"👁️ Восстановление билетов ID={ids_list}")
+        
+        # ПРИОРИТЕТ 4: Массовое восстановление по фильтрам
+        else:
+            # Фильтр по городу (club_id или city_name)
+            if club_id:
+                query = query.filter(Ticket.club_id == club_id)
+            elif city_name:
+                query = query.filter(Ticket.city_name == city_name)
+            
+            # Фильтр по мероприятию
+            if event_name:
+                query = query.filter(Ticket.event_name == event_name)
         
         updated_count = query.update({"visible_to_managers": True}, synchronize_session='fetch')
         db.commit()
@@ -926,3 +952,39 @@ def delete_tickets_by_event(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Delete by event error: {str(e)}")
+
+
+@router.put("/rename-event")
+def rename_event(
+    old_name: str = Query(..., description="Текущее название мероприятия"),
+    new_name: str = Query(..., description="Новое название мероприятия"),
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
+):
+    """Переименовать мероприятие — обновить event_name у всех билетов"""
+    try:
+        if not old_name or not new_name:
+            raise HTTPException(status_code=400, detail="old_name and new_name are required")
+
+        count = db.query(Ticket).filter(Ticket.event_name == old_name).count()
+        if count == 0:
+            return {"updated_count": 0, "message": f"No tickets found with event_name='{old_name}'"}
+
+        db.query(Ticket).filter(Ticket.event_name == old_name).update(
+            {Ticket.event_name: new_name}, synchronize_session=False
+        )
+        db.commit()
+
+        print(f"✅ Переименовано мероприятие: '{old_name}' → '{new_name}' ({count} билетов)")
+        return {
+            "updated_count": count,
+            "old_name": old_name,
+            "new_name": new_name,
+            "message": f"Renamed {count} tickets"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Rename event error: {str(e)}")
