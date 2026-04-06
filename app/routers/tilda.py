@@ -5,9 +5,10 @@ from typing import Dict, Any, Optional
 import logging
 import hmac
 import hashlib
+import re
 
 from app.database import get_db
-from app.models import Ticket
+from app.models import Ticket, Club
 from app.schemas import TicketCreate, TicketResponse
 from app.security import generate_token, generate_signature
 from app.config import settings
@@ -16,6 +17,59 @@ from app.config import settings
 logger = logging.getLogger("impreza.security")
 
 router = APIRouter(prefix="/api/tilda", tags=["tilda"])
+
+# Русские названия → английские (для нормализации city_name)
+_CITY_RU_TO_EN = {
+    "Краков": "Krakow", "Варшава": "Warsaw", "Вроцлав": "Wroclaw",
+    "Гданьск": "Gdansk", "Люблин": "Lublin", "Катовице": "Katowice",
+    "Берлин": "Berlin", "Мюнхен": "Munich", "Франкфурт": "Frankfurt",
+    "Кёльн": "Cologne", "Штутгарт": "Stuttgart", "Дрезден": "Dresden",
+    "Лейпциг": "Leipzig", "Дюссельдорф": "Dusseldorf",
+    "Амстердам": "Amsterdam", "Роттердам": "Rotterdam",
+    "Гаага": "Den Haag", "Эйндховен": "Eindhoven",
+    "София": "Sofia", "Варна": "Varna", "Пловдив": "Plovdiv",
+    "Прага": "Prague", "Брно": "Brno",
+    "Барселона": "Barcelona", "Валенсия": "Valencia", "Мадрид": "Madrid",
+    "Люксембург": "Luxembourg", "Вена": "Vienna", "Братислава": "Bratislava",
+    "Вильнюс": "Vilnius", "Рига": "Riga", "Таллин": "Tallinn",
+    "Париж": "Paris", "Лондон": "London", "Дубай": "Dubai",
+    "Цюрих": "Zurich", "Сеул": "Seoul",
+}
+
+
+def normalize_city_name(city_name: str, db: Session = None) -> str:
+    """Нормализация city_name: русский → английский, с поддержкой префиксов.
+    'Роттердам MEET AND GREET' → 'Rotterdam'
+    """
+    if not city_name:
+        return city_name
+    
+    city_lower = city_name.lower().strip()
+    
+    # Точное совпадение
+    for ru, en in _CITY_RU_TO_EN.items():
+        if ru.lower() == city_lower or en.lower() == city_lower:
+            return en
+    
+    # Префиксное совпадение (город + пробел + доп. текст)
+    for ru, en in sorted(_CITY_RU_TO_EN.items(), key=lambda x: len(x[0]), reverse=True):
+        if city_lower.startswith(ru.lower() + ' ') or city_lower.startswith(ru.lower() + '-'):
+            return en
+        if city_lower.startswith(en.lower() + ' ') or city_lower.startswith(en.lower() + '-'):
+            return en
+
+    # Поиск в clubs таблице (если доступна БД)
+    if db:
+        try:
+            club = db.query(Club).filter(
+                Club.city_english.ilike(city_name)
+            ).first()
+            if club:
+                return club.city_english
+        except Exception:
+            pass
+    
+    return city_name
 
 class TildaWebhookData:
     """Схема данных от Tilda"""
@@ -47,6 +101,24 @@ def process_tilda_order(webhook_data: TildaWebhookData, db: Session) -> Ticket:
         logger.info(f"Ticket with order_id {webhook_data.order_id} already exists")
         return existing_ticket
     
+    # Нормализуем city_name (русский → английский, убираем суффиксы типа "MEET AND GREET")
+    normalized_city = normalize_city_name(webhook_data.city_name, db)
+    if normalized_city != webhook_data.city_name:
+        logger.info(f"City normalized: '{webhook_data.city_name}' → '{normalized_city}'")
+    
+    # Если club_id не указан, пробуем найти по нормализованному городу
+    club_id = webhook_data.club_id
+    if not club_id and normalized_city:
+        try:
+            club = db.query(Club).filter(
+                Club.city_english.ilike(normalized_city)
+            ).first()
+            if club:
+                club_id = club.club_id
+                logger.info(f"Auto-resolved club_id={club_id} for city '{normalized_city}'")
+        except Exception as e:
+            logger.warning(f"Could not resolve club_id for city '{normalized_city}': {e}")
+    
     # Генерируем токен и подпись для QR-кода
     qr_token = generate_token()
     qr_signature = generate_signature(webhook_data.order_id, qr_token)
@@ -67,9 +139,9 @@ def process_tilda_order(webhook_data: TildaWebhookData, db: Session) -> Ticket:
         promocode=webhook_data.promocode,
         qr_token=qr_token,
         qr_signature=qr_signature,
-        city_name=webhook_data.city_name,
+        city_name=normalized_city,
         country_code=webhook_data.country_code,
-        club_id=webhook_data.club_id,
+        club_id=club_id,
         visible_to_managers=True
     )
     
