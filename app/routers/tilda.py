@@ -108,6 +108,7 @@ def process_tilda_order(webhook_data: TildaWebhookData, db: Session) -> Ticket:
     
     # Если club_id не указан, пробуем найти по нормализованному городу
     club_id = webhook_data.club_id
+    club = None
     if not club_id and normalized_city:
         try:
             club = db.query(Club).filter(
@@ -118,6 +119,24 @@ def process_tilda_order(webhook_data: TildaWebhookData, db: Session) -> Ticket:
                 logger.info(f"Auto-resolved club_id={club_id} for city '{normalized_city}'")
         except Exception as e:
             logger.warning(f"Could not resolve club_id for city '{normalized_city}': {e}")
+    
+    # Auto-resolve country_code из club → countries, если не указан или пустой
+    resolved_country = webhook_data.country_code
+    if (not resolved_country or resolved_country == '') and club_id:
+        try:
+            if not club:
+                club = db.query(Club).filter(Club.club_id == club_id).first()
+            if club:
+                from sqlalchemy import text
+                row = db.execute(
+                    text("SELECT country_code FROM countries WHERE country_id = :cid"),
+                    {"cid": club.country_id},
+                ).fetchone()
+                if row:
+                    resolved_country = row[0]
+                    logger.info(f"Auto-resolved country_code='{resolved_country}' for club_id={club_id}")
+        except Exception as e:
+            logger.warning(f"Could not resolve country_code for club_id={club_id}: {e}")
     
     # Генерируем токен и подпись для QR-кода
     qr_token = generate_token()
@@ -140,7 +159,7 @@ def process_tilda_order(webhook_data: TildaWebhookData, db: Session) -> Ticket:
         qr_token=qr_token,
         qr_signature=qr_signature,
         city_name=normalized_city,
-        country_code=webhook_data.country_code,
+        country_code=resolved_country,
         club_id=club_id,
         visible_to_managers=True
     )

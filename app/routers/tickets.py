@@ -2,12 +2,12 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from datetime import date, datetime
 from typing import Optional
 
 from app.database import get_db
-from app.models import Ticket, ScanHistory
+from app.models import Ticket, ScanHistory, Club
 from app.schemas import TicketCreate, TicketResponse, TicketListResponse
 from app.security import generate_token, generate_signature
 from app.dependencies.auth import require_auth, require_role, AuthInfo
@@ -34,6 +34,33 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db), auth: Aut
     token = ticket.qr_token if ticket.qr_token else generate_token()
     signature = ticket.qr_signature if ticket.qr_signature else generate_signature(ticket.order_id, token)
     
+    # Auto-resolve club_id и country_code по city_name, если не указаны
+    resolved_club_id = ticket.club_id
+    resolved_country_code = ticket.country_code or ''
+    resolved_city_name = ticket.city_name or ''
+
+    if resolved_city_name and (not resolved_club_id or not resolved_country_code):
+        try:
+            club = db.query(Club).filter(
+                or_(
+                    Club.city_english.ilike(resolved_city_name),
+                    Club.city_name.ilike(resolved_city_name),
+                )
+            ).first()
+            if club:
+                if not resolved_club_id:
+                    resolved_club_id = club.club_id
+                if not resolved_country_code:
+                    row = db.execute(
+                        text("SELECT country_code FROM countries WHERE country_id = :cid"),
+                        {"cid": club.country_id},
+                    ).fetchone()
+                    if row:
+                        resolved_country_code = row[0]
+                        logger.info(f"Auto-resolved country_code='{resolved_country_code}' for city '{resolved_city_name}'")
+        except Exception as e:
+            logger.warning(f"Could not auto-resolve club/country for city '{resolved_city_name}': {e}")
+
     db_ticket = Ticket(
         order_id=ticket.order_id,
         transaction_id=ticket.transaction_id,
@@ -51,9 +78,9 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db), auth: Aut
         qr_token=token,
         qr_signature=signature,
         status="valid",
-        city_name=ticket.city_name,
-        country_code=ticket.country_code,
-        club_id=ticket.club_id,
+        city_name=resolved_city_name,
+        country_code=resolved_country_code,
+        club_id=resolved_club_id,
         visible_to_managers=ticket.visible_to_managers,
         quantity=ticket.quantity  # Количество персон на билете
     )
