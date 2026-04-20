@@ -8,7 +8,7 @@ from typing import Optional
 
 from app.database import get_db
 from app.models import Ticket, ScanHistory, Club
-from app.schemas import TicketCreate, TicketResponse, TicketListResponse
+from app.schemas import TicketCreate, TicketResponse, TicketListResponse, SyncFieldsRequest
 from app.security import generate_token, generate_signature
 from app.dependencies.auth import require_auth, require_role, AuthInfo
 
@@ -1015,3 +1015,190 @@ def rename_event(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Rename event error: {str(e)}")
+
+
+@router.post("/repair-after-restore")
+def repair_after_restore(
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_role("super")),
+):
+    """Восстановление данных после рестора БД.
+    
+    Выполняет:
+    1. Заполнение visible_to_managers=true для NULL значений
+    2. Заполнение club_id для билетов без него (по city_name)
+    3. Заполнение country_code для билетов без него (по clubs → countries)
+    4. Починка последовательностей (sequences) для таблиц
+    5. Диагностика: подсчёт проблем
+    """
+    results = {
+        "club_id_fixed": 0,
+        "country_code_fixed": 0,
+        "visibility_fixed": 0,
+        "sequences_fixed": [],
+        "orphan_tickets": 0,
+        "empty_event_name": 0,
+        "diagnostics": {},
+    }
+    
+    try:
+        # ── 1. Fix NULL visible_to_managers ──
+        fixed_vis = db.execute(text("""
+            UPDATE tickets SET visible_to_managers = true
+            WHERE visible_to_managers IS NULL
+        """))
+        db.commit()
+        results["visibility_fixed"] = fixed_vis.rowcount
+
+        # ── 2. Fix missing club_id (join by city_name) ──
+        fixed_club = db.execute(text("""
+            UPDATE tickets t
+            SET club_id = c.club_id
+            FROM clubs c
+            WHERE t.club_id IS NULL
+              AND (LOWER(t.city_name) = LOWER(c.city_english) OR LOWER(t.city_name) = LOWER(c.city_name))
+        """))
+        db.commit()
+        results["club_id_fixed"] = fixed_club.rowcount
+
+        # ── 3. Fix missing country_code via club_id → countries ──
+        fixed_cc = db.execute(text("""
+            UPDATE tickets t
+            SET country_code = co.country_code
+            FROM clubs c
+            JOIN countries co ON c.country_id = co.country_id
+            WHERE (t.country_code IS NULL OR t.country_code = '')
+              AND t.club_id = c.club_id
+        """))
+        db.commit()
+        results["country_code_fixed"] = fixed_cc.rowcount
+
+        # ── 3b. Fix country_code by city_name match ──
+        fixed_cc2 = db.execute(text("""
+            UPDATE tickets t
+            SET country_code = co.country_code
+            FROM clubs c
+            JOIN countries co ON c.country_id = co.country_id
+            WHERE (t.country_code IS NULL OR t.country_code = '')
+              AND (LOWER(t.city_name) = LOWER(c.city_english) OR LOWER(t.city_name) = LOWER(c.city_name))
+        """))
+        db.commit()
+        results["country_code_fixed"] += fixed_cc2.rowcount
+
+        # ── 4. Fix PostgreSQL sequences ──
+        for tbl, col in [("tickets", "id"), ("scan_history", "id"), ("deleted_tickets", "id"), ("clubs", "club_id"), ("countries", "country_id")]:
+            try:
+                seq_name = db.execute(text(
+                    f"SELECT pg_get_serial_sequence('{tbl}', '{col}')"
+                )).scalar()
+                if seq_name:
+                    db.execute(text(
+                        f"SELECT setval('{seq_name}', COALESCE((SELECT MAX({col}) FROM {tbl}), 1))"
+                    ))
+                    db.commit()
+                    results["sequences_fixed"].append(tbl)
+            except Exception as e:
+                logger.warning(f"Could not fix sequence for {tbl}.{col}: {e}")
+                db.rollback()
+
+        # ── 5. Diagnostics ──
+        results["orphan_tickets"] = db.execute(text(
+            "SELECT COUNT(*) FROM tickets WHERE club_id IS NULL AND city_name IS NOT NULL AND city_name != ''"
+        )).scalar()
+
+        results["empty_event_name"] = db.execute(text(
+            "SELECT COUNT(*) FROM tickets WHERE event_name IS NULL OR event_name = ''"
+        )).scalar()
+
+        status_rows = db.execute(text(
+            "SELECT status, COUNT(*) FROM tickets GROUP BY status"
+        )).fetchall()
+        results["diagnostics"]["status_counts"] = {r[0]: r[1] for r in status_rows}
+
+        results["diagnostics"]["missing_country_code"] = db.execute(text(
+            "SELECT COUNT(*) FROM tickets WHERE country_code IS NULL OR country_code = ''"
+        )).scalar()
+
+        results["diagnostics"]["total_clubs"] = db.execute(text("SELECT COUNT(*) FROM clubs")).scalar()
+        results["diagnostics"]["total_countries"] = db.execute(text("SELECT COUNT(*) FROM countries")).scalar()
+        results["diagnostics"]["total_tickets"] = db.execute(text("SELECT COUNT(*) FROM tickets")).scalar()
+
+        logger.info(f"DB repair completed: {results}")
+        return {"message": "Ремонт базы данных завершён", "results": results}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"DB repair error: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка ремонта БД: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  PUT /api/tickets/sync-fields  –  Update promo/pricing fields
+#  by order_id WITHOUT touching qr_token / qr_signature / status
+# ═══════════════════════════════════════════════════════════════
+SAFE_SYNC_FIELDS = {
+    "promocode", "subtotal", "discount", "price", "payment_amount",
+    "event_name", "event_date", "ticket_type", "city_name",
+    "country_code", "club_id", "quantity", "customer_name", "customer_phone",
+}
+
+@router.put("/sync-fields")
+def sync_ticket_fields(
+    payload: SyncFieldsRequest,
+    db: Session = Depends(get_db),
+    auth: AuthInfo = Depends(require_auth),
+):
+    """
+    Безопасно обновляет поля билетов по order_id.
+    НЕ трогает: qr_token, qr_signature, unique_token, status, scan_count, ticket_id.
+    Используется ботом при ресинке из Google Sheets для восстановления промокодов и цен.
+    """
+    updated = 0
+    skipped = 0
+    not_found = 0
+    errors = []
+
+    for item in payload.items:
+        try:
+            tickets = db.query(Ticket).filter(Ticket.order_id == item.order_id).all()
+            if not tickets:
+                not_found += 1
+                continue
+
+            # Collect only non-None fields from the item
+            update_data = {}
+            item_dict = item.model_dump(exclude={"order_id"}, exclude_none=True)
+            for field, value in item_dict.items():
+                if field in SAFE_SYNC_FIELDS:
+                    update_data[field] = value
+
+            if not update_data:
+                skipped += len(tickets)
+                continue
+
+            for ticket in tickets:
+                for field, value in update_data.items():
+                    setattr(ticket, field, value)
+                updated += 1
+
+        except Exception as e:
+            errors.append({"order_id": item.order_id, "error": str(e)})
+            db.rollback()
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка сохранения: {str(e)}")
+
+    logger.info(f"Sync-fields: updated={updated}, skipped={skipped}, not_found={not_found}, errors={len(errors)}")
+    return {
+        "message": "Синхронизация полей завершена",
+        "updated": updated,
+        "skipped": skipped,
+        "not_found": not_found,
+        "errors": errors,
+    }
+

@@ -93,3 +93,24 @@ class HistoryItem(BaseModel):
 class HistoryResponse(BaseModel):
     items: List[HistoryItem]
     stats: dict
+
+class SyncFieldsItem(BaseModel):
+    """Обновление полей билета по order_id (без пересоздания QR)"""
+    order_id: str
+    promocode: Optional[str] = None
+    subtotal: Optional[float] = None
+    discount: Optional[float] = None
+    price: Optional[float] = None
+    payment_amount: Optional[float] = None
+    event_name: Optional[str] = None
+    event_date: Optional[str] = None
+    ticket_type: Optional[str] = None
+    city_name: Optional[str] = None
+    country_code: Optional[str] = None
+    club_id: Optional[int] = None
+    quantity: Optional[int] = None
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+
+class SyncFieldsRequest(BaseModel):
+    items: List[SyncFieldsItem]
