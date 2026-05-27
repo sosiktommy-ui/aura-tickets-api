@@ -47,6 +47,17 @@ def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db), auth: Aut
                     Club.city_name.ilike(resolved_city_name),
                 )
             ).first()
+            # Fallback: if compound name like "Istanbul KDK" didn't match, try base city (first word)
+            if not club and ' ' in resolved_city_name:
+                base_city = resolved_city_name.split(' ')[0]
+                club = db.query(Club).filter(
+                    or_(
+                        Club.city_english.ilike(base_city),
+                        Club.city_name.ilike(base_city),
+                    )
+                ).first()
+                if club:
+                    logger.info(f"Club resolved via base city '{base_city}' for city_name '{resolved_city_name}'")
             if club:
                 if not resolved_club_id:
                     resolved_club_id = club.club_id

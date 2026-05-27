@@ -193,6 +193,24 @@ def process_tilda_order(webhook_data: TildaWebhookData, db: Session) -> Ticket:
     logger.info(f"Created new ticket: {webhook_data.order_id}")
     return db_ticket
 
+async def _parse_and_validate_webhook(request: Request) -> dict:
+    """Общая логика парсинга и проверки секрета для webhook запросов."""
+    webhook_secret = settings.TILDA_WEBHOOK_SECRET
+    if webhook_secret:
+        incoming_secret = request.headers.get("X-Tilda-Secret", "")
+        if not hmac.compare_digest(incoming_secret, webhook_secret):
+            logger.warning("Tilda webhook: invalid secret from %s", request.client.host if request.client else "unknown")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook secret")
+
+    if request.headers.get("content-type") == "application/json":
+        data = await request.json()
+    else:
+        form_data = await request.form()
+        data = dict(form_data)
+
+    return data
+
+
 @router.post("/webhook", status_code=status.HTTP_200_OK)
 async def tilda_webhook(
     request: Request,
@@ -203,23 +221,9 @@ async def tilda_webhook(
     Webhook endpoint для получения заказов от Tilda.
     Защищён проверкой секрета (X-Tilda-Secret header).
     """
-    # ─── Проверка webhook secret ───
-    webhook_secret = settings.TILDA_WEBHOOK_SECRET
-    if webhook_secret:
-        incoming_secret = request.headers.get("X-Tilda-Secret", "")
-        if not hmac.compare_digest(incoming_secret, webhook_secret):
-            logger.warning("Tilda webhook: invalid secret from %s", request.client.host if request.client else "unknown")
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid webhook secret")
-    
     try:
-        # Получаем данные от Tilda
-        if request.headers.get("content-type") == "application/json":
-            data = await request.json()
-        else:
-            # Tilda может отправлять form-data
-            form_data = await request.form()
-            data = dict(form_data)
-        
+        data = await _parse_and_validate_webhook(request)
+
         logger.info(f"Received Tilda webhook: {data}")
         
         # Парсим данные
@@ -248,6 +252,61 @@ async def tilda_webhook(
         
         return {
             "status": "success", 
+            "order_id": webhook_data.order_id,
+            "ticket_id": ticket.id,
+            "qr_token": ticket.qr_token
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Tilda webhook error: {e}", exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@router.post("/webhook/{city}", status_code=status.HTTP_200_OK)
+async def tilda_webhook_city(
+    city: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Webhook endpoint с городом в URL: /api/tilda/webhook/bucharest
+    Используется для after-party и других форм, где город не передаётся в теле запроса.
+    Город из URL всегда имеет приоритет над полем city в теле запроса.
+    """
+    try:
+        data = await _parse_and_validate_webhook(request)
+
+        logger.info(f"Received Tilda city-webhook (city={city}): {data}")
+
+        webhook_data = TildaWebhookData(data)
+
+        # Переопределяем город из URL (city из URL всегда приоритетнее)
+        city_from_url = city.strip().capitalize()
+        webhook_data.city_name = city_from_url
+        logger.info(f"City overridden from URL path: '{city_from_url}'")
+
+        if not webhook_data.order_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing required field: orderid"
+            )
+
+        if not webhook_data.customer_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing required field: name"
+            )
+
+        if webhook_data.payment_status.lower() not in ['confirmed', 'paid', 'success']:
+            logger.info(f"Skipping order {webhook_data.order_id} with status: {webhook_data.payment_status}")
+            return {"status": "skipped", "reason": f"Payment status: {webhook_data.payment_status}"}
+
+        ticket = process_tilda_order(webhook_data, db)
+
+        return {
+            "status": "success",
             "order_id": webhook_data.order_id,
             "ticket_id": ticket.id,
             "qr_token": ticket.qr_token

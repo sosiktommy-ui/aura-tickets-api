@@ -82,3 +82,57 @@ curl -X POST "https://your-api.railway.app/api/verify" \
 ```bash
 curl "https://your-api.railway.app/api/stats/"
 ```
+
+## Backup и Restore Postgres
+
+Критичная аналитика хранится в PostgreSQL, в том числе:
+- `tickets.created_at`
+- `tickets.first_scan_at`
+- `tickets.scan_count`
+- `scan_history`
+
+Чтобы не потерять эти данные, в проект добавлены локальные снапшоты БД без `pg_dump`.
+
+### Сделать backup вручную
+
+```bash
+python backup_postgres.py
+```
+
+Скрипт:
+- читает `DATABASE_URL` из `.env`
+- сохраняет все таблицы `public` в `backups/postgres/*.json.gz`
+- автоматически держит только последние 30 копий
+
+### Восстановить из backup
+
+```bash
+python restore_postgres_backup.py --latest
+```
+
+Перед восстановлением скрипт сам делает дополнительную safety-копию текущей базы.
+
+Для проверки без изменений:
+
+```bash
+python restore_postgres_backup.py --latest --dry-run
+```
+
+### Автоматический backup в Windows
+
+Рекомендуемый минимум: 1 раз в день. Если сканы критичны, лучше каждые 1-2 дня, а не реже.
+
+Создать задачу Windows Scheduler:
+
+```powershell
+.\install_backup_task.ps1 -EveryDays 1 -At 06:00
+```
+
+Что это даёт:
+- каждый запуск пишет новый compressed snapshot
+- логи запуска лежат в `backups/logs/`
+- restore можно сделать в любой момент локально из последней копии
+
+Важно:
+- restore перезаписывает текущие таблицы `public`
+- делать restore лучше, когда сканирование остановлено, иначе новые сканы в этот момент могут потеряться

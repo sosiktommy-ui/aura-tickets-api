@@ -46,17 +46,18 @@ def root():
     return {"service": "AURA Tickets API", "version": "2.0.0", "docs": "/docs"}
 
 # Р РѕСѓС‚РµСЂС‹ РїРѕРґРєР»СЋС‡Р°РµРј РїРѕСЃР»Рµ
-from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets, admin_auth  # IMPREZA: РґРѕР±Р°РІР»РµРЅ deleted_tickets
+from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets, admin_auth, bot_rules  # IMPREZA: добавлен deleted_tickets
 
 app.include_router(tickets.router)
 app.include_router(verify.router)
 app.include_router(stats.router)
 app.include_router(history.router)
-app.include_router(auth.router)  # IMPREZA: РїРѕРґРєР»СЋС‡РµРЅ СЂРѕСѓС‚РµСЂ Р°РІС‚РѕСЂРёР·Р°С†РёРё
-app.include_router(clubs.router)  # IMPREZA: РїРѕРґРєР»СЋС‡РµРЅ СЂРѕСѓС‚РµСЂ clubs
-app.include_router(tilda.router)  # РџРѕРґРєР»СЋС‡РµРЅ СЂРѕСѓС‚РµСЂ РґР»СЏ Tilda webhooks
-app.include_router(deleted_tickets.router)  # РђСЂС…РёРІ СѓРґР°Р»С‘РЅРЅС‹С… Р±РёР»РµС‚РѕРІ
+app.include_router(auth.router)  # IMPREZA: подключен роутер авторизации
+app.include_router(clubs.router)  # IMPREZA: подключен роутер clubs
+app.include_router(tilda.router)  # Подключен роутер для Tilda webhooks
+app.include_router(deleted_tickets.router)  # Архив удалённых билетов
 app.include_router(admin_auth.router)  # IMPREZA: Web admin panel JWT auth
+app.include_router(bot_rules.router)  # Bot rules CRUD (super only)
 
 # РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р‘Р” РїСЂРё РїРµСЂРІРѕРј Р·Р°РїСЂРѕСЃРµ
 @app.on_event("startup")
