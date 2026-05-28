@@ -29,6 +29,8 @@ class BotRuleIn(BaseModel):
     country_code: str
     description: Optional[str] = None
     is_active: bool = True
+    display_keyword: Optional[str] = None
+    display_date: Optional[str] = None
 
 
 class BotRuleOut(BaseModel):
@@ -39,9 +41,30 @@ class BotRuleOut(BaseModel):
     country_code: str
     description: Optional[str]
     is_active: bool
+    display_keyword: Optional[str] = None
+    display_date: Optional[str] = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────
+
+def keyword_to_regex(keyword: str, date: Optional[str] = None) -> str:
+    """Convert plain keyword + optional date to a regex pattern.
+    Priority via length: date+keyword pattern is longer → wins over keyword-only.
+    Examples:
+      "after party"        → after\s*party
+      "after party" + "05.06" → 05\.06.*after\s*party
+      "after party kdk"   → after\s*party\s*kdk
+    """
+    # Escape each word and join with \s* to allow flexible spacing
+    words = keyword.strip().split()
+    kw_regex = r"\s*".join(re.escape(w) for w in words)
+
+    if date:
+        # Escape the date (05.06 → 05\.06) and prepend it so pattern is longer
+        date_regex = re.escape(date.strip())
+        return f"{date_regex}.*{kw_regex}"
+    return kw_regex
+
 
 def _validate(body: BotRuleIn) -> None:
     if body.rule_type not in VALID_TYPES:
@@ -63,6 +86,8 @@ def _row_to_out(row) -> BotRuleOut:
         country_code=row[4],
         description=row[5],
         is_active=bool(row[6]),
+        display_keyword=row[7] if len(row) > 7 else None,
+        display_date=row[8] if len(row) > 8 else None,
     )
 
 
@@ -75,7 +100,8 @@ def list_rules(
 ):
     rows = db.execute(
         text("""
-            SELECT id, rule_type, pattern, city_name, country_code, description, is_active
+            SELECT id, rule_type, pattern, city_name, country_code, description, is_active,
+                   display_keyword, display_date
             FROM bot_rules
             ORDER BY rule_type, pattern
         """)
@@ -89,12 +115,20 @@ def create_rule(
     _auth=Depends(require_role("super")),
     db=Depends(get_db),
 ):
+    # If display_keyword provided, auto-generate regex pattern
+    if body.display_keyword:
+        body = body.model_copy(update={
+            "pattern": keyword_to_regex(body.display_keyword, body.display_date),
+            "rule_type": "product_keyword",
+        })
     _validate(body)
     row = db.execute(
         text("""
-            INSERT INTO bot_rules (rule_type, pattern, city_name, country_code, description, is_active)
-            VALUES (:rt, :pat, :city, :cc, :desc, :active)
-            RETURNING id, rule_type, pattern, city_name, country_code, description, is_active
+            INSERT INTO bot_rules (rule_type, pattern, city_name, country_code, description,
+                                   is_active, display_keyword, display_date)
+            VALUES (:rt, :pat, :city, :cc, :desc, :active, :dk, :dd)
+            RETURNING id, rule_type, pattern, city_name, country_code, description, is_active,
+                      display_keyword, display_date
         """),
         {
             "rt": body.rule_type,
@@ -103,6 +137,8 @@ def create_rule(
             "cc": body.country_code.strip().upper(),
             "desc": body.description,
             "active": body.is_active,
+            "dk": body.display_keyword,
+            "dd": body.display_date,
         },
     ).fetchone()
     db.commit()
@@ -117,6 +153,12 @@ def update_rule(
     _auth=Depends(require_role("super")),
     db=Depends(get_db),
 ):
+    # If display_keyword provided, auto-generate regex pattern
+    if body.display_keyword:
+        body = body.model_copy(update={
+            "pattern": keyword_to_regex(body.display_keyword, body.display_date),
+            "rule_type": "product_keyword",
+        })
     _validate(body)
     row = db.execute(
         text("""
@@ -127,9 +169,12 @@ def update_rule(
                 country_code = :cc,
                 description = :desc,
                 is_active = :active,
+                display_keyword = :dk,
+                display_date = :dd,
                 updated_at = NOW()
             WHERE id = :id
-            RETURNING id, rule_type, pattern, city_name, country_code, description, is_active
+            RETURNING id, rule_type, pattern, city_name, country_code, description, is_active,
+                      display_keyword, display_date
         """),
         {
             "rt": body.rule_type,
@@ -138,6 +183,8 @@ def update_rule(
             "cc": body.country_code.strip().upper(),
             "desc": body.description,
             "active": body.is_active,
+            "dk": body.display_keyword,
+            "dd": body.display_date,
             "id": rule_id,
         },
     ).fetchone()
@@ -182,11 +229,18 @@ def bulk_create(
     created = []
     try:
         for r in body.rules:
+            if r.display_keyword:
+                r = r.model_copy(update={
+                    "pattern": keyword_to_regex(r.display_keyword, r.display_date),
+                    "rule_type": "product_keyword",
+                })
             row = db.execute(
                 text("""
-                    INSERT INTO bot_rules (rule_type, pattern, city_name, country_code, description, is_active)
-                    VALUES (:rt, :pat, :city, :cc, :desc, :active)
-                    RETURNING id, rule_type, pattern, city_name, country_code, description, is_active
+                    INSERT INTO bot_rules (rule_type, pattern, city_name, country_code, description,
+                                           is_active, display_keyword, display_date)
+                    VALUES (:rt, :pat, :city, :cc, :desc, :active, :dk, :dd)
+                    RETURNING id, rule_type, pattern, city_name, country_code, description, is_active,
+                              display_keyword, display_date
                 """),
                 {
                     "rt": r.rule_type,
@@ -195,6 +249,8 @@ def bulk_create(
                     "cc": r.country_code.strip().upper(),
                     "desc": r.description,
                     "active": r.is_active,
+                    "dk": r.display_keyword,
+                    "dd": r.display_date,
                 },
             ).fetchone()
             created.append(_row_to_out(row))

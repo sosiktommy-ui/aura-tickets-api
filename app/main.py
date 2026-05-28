@@ -151,9 +151,43 @@ async def startup():
                 conn.commit()
                 print("вњ… Created table: deleted_tickets (archive)")
             else:
-                print("вњ… Table deleted_tickets already exists")
-                
+                print("✅ Table deleted_tickets already exists")
+
+            # SIMPLE RULES: добавляем display_keyword и display_date в bot_rules
+            result = conn.execute(sqlalchemy.text("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'bot_rules' AND column_name = 'display_keyword'
+            """))
+            if not result.fetchone():
+                conn.execute(sqlalchemy.text("""
+                    ALTER TABLE bot_rules ADD COLUMN display_keyword TEXT,
+                                         ADD COLUMN display_date VARCHAR(10)
+                """))
+                conn.commit()
+                print("✅ Added columns: display_keyword, display_date to bot_rules")
+            else:
+                print("✅ bot_rules display columns already exist")
+
+            # COUNTRIES TABLE: убеждаемся что таблица countries есть
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables WHERE table_name = 'countries'
+                )
+            """))
+            if not result.scalar():
+                conn.execute(sqlalchemy.text("""
+                    CREATE TABLE countries (
+                        country_id SERIAL PRIMARY KEY,
+                        country_code VARCHAR(2) UNIQUE NOT NULL,
+                        country_name VARCHAR(100) NOT NULL
+                    )
+                """))
+                conn.commit()
+                print("✅ Created table: countries")
+            else:
+                print("✅ Table countries already exists")
+
     except Exception as e:
-        print(f"вљ пёЏ DB init error: {e}")
+        print(f"⚠️ DB init error: {e}")
 
 
