@@ -19,7 +19,7 @@ def _get_scanner_allowed_club_ids(auth: AuthInfo, db: Session) -> list[int]:
 
     allowed_club_ids = list(auth.club_ids) if auth.club_ids else [auth.club_id]
 
-    if auth.club_id == 100:
+    if auth.club_id == 76:
         kdk_club = db.query(Club).filter(Club.club_id == 101).first()
         if kdk_club and kdk_club.club_id not in allowed_club_ids:
             allowed_club_ids.append(kdk_club.club_id)

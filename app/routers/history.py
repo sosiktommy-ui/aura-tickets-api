@@ -15,7 +15,7 @@ def _get_scanner_allowed_club_ids(auth: AuthInfo, db: Session) -> list[int]:
         return []
 
     allowed_club_ids = list(auth.club_ids) if auth.club_ids else [auth.club_id]
-    if auth.club_id == 100 and 101 not in allowed_club_ids:
+    if auth.club_id == 76 and 101 not in allowed_club_ids:
         allowed_club_ids.append(101)
     return allowed_club_ids
 

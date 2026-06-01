@@ -131,7 +131,7 @@ async def require_auth(
         if payload:
             club_id = payload.get("club_id")
             club_ids = payload.get("club_ids")
-            if club_id == 100:
+            if club_id == 76:
                 club_ids = list(club_ids) if club_ids else [club_id]
                 if 101 not in club_ids:
                     club_ids.append(101)

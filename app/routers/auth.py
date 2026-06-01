@@ -49,7 +49,7 @@ def login(credentials: LoginRequest):
         
         # Генерируем JWT токен для сканера
         allowed_club_ids = [club[0]]
-        if club[0] == 100:
+        if club[0] == 76:
             kdk_club = db.execute(
                 text("SELECT club_id FROM clubs WHERE club_id = 101 LIMIT 1")
             ).fetchone()
