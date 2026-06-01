@@ -20,6 +20,9 @@ TICKET_EXPIRY_HOURS = 10
 @router.post("/verify", response_model=VerifyResponse)
 def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     
+    # DEBUG: Логируем входящие параметры
+    logger.info(f"[VERIFY] REQUEST: scanner_id={request.scanner_id}, scanner_club_id={request.scanner_club_id}, is_admin={request.is_admin}")
+    
     # 1. Парсим QR
     qr_data = parse_qr_data(request.qr_data)
     
