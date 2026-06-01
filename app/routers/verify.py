@@ -20,8 +20,8 @@ TICKET_EXPIRY_HOURS = 10
 @router.post("/verify", response_model=VerifyResponse)
 def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     
-    # DEBUG: Логируем входящие параметры
-    logger.info(f"[VERIFY] REQUEST: scanner_id={request.scanner_id}, scanner_club_id={request.scanner_club_id}, is_admin={request.is_admin}")
+    # DEBUG: Логируем входящие параметры (temporarily simplified for raw body dump)
+    logger.info(f"[VERIFY] REQUEST: scanner_club_id={request.scanner_club_id}, is_admin={request.is_admin}, raw_body dump")
     
     # 1. Парсим QR
     qr_data = parse_qr_data(request.qr_data)
@@ -123,7 +123,7 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     # MULTITENANCY: Проверка club_id сканера и билета
     # Сканер может сканировать билеты своего клуба и разрешённых связанных клубов
     if request.scanner_club_id and not request.is_admin:
-        allowed_clubs = {76: [76, 101]}
+        allowed_clubs = {76: [76, 101], 101: [76, 101]}
         allowed = allowed_clubs.get(request.scanner_club_id, [request.scanner_club_id])
         if ticket.club_id not in allowed:
             log_scan(db, ticket.id, ticket.order_id, "invalid", request.scanner_id, 
