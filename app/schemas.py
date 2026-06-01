@@ -62,6 +62,7 @@ class VerifyRequest(BaseModel):
     qr_data: str
     scanner_id: Optional[str] = "default"
     is_admin: Optional[bool] = False
+    scanner_club_id: Optional[int] = None
 
 class VerifyResponse(BaseModel):
     status: str
