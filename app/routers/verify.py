@@ -123,12 +123,9 @@ def verify_ticket(request: VerifyRequest, db: Session = Depends(get_db)):
     # MULTITENANCY: Проверка club_id сканера и билета
     # Сканер может сканировать билеты своего клуба и разрешённых связанных клубов
     if request.scanner_club_id and not request.is_admin:
-        allowed_club_ids = [request.scanner_club_id]
-        # Istanbul scanner (76) может сканировать KDK (101)
-        if request.scanner_club_id == 76 and 101 not in allowed_club_ids:
-            allowed_club_ids.append(101)
-        
-        if ticket.club_id not in allowed_club_ids:
+        allowed_clubs = {76: [76, 101]}
+        allowed = allowed_clubs.get(request.scanner_club_id, [request.scanner_club_id])
+        if ticket.club_id not in allowed:
             log_scan(db, ticket.id, ticket.order_id, "invalid", request.scanner_id, 
                     f"Scanner club_id={request.scanner_club_id} cannot scan club_id={ticket.club_id}", 
                     club_id=ticket.club_id)
