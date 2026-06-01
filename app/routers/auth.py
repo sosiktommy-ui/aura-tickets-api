@@ -48,8 +48,17 @@ def login(credentials: LoginRequest):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         # Генерируем JWT токен для сканера
+        allowed_club_ids = [club[0]]
+        if club[0] == 100:
+            kdk_club = db.execute(
+                text("SELECT club_id FROM clubs WHERE club_id = 101 LIMIT 1")
+            ).fetchone()
+            if kdk_club and kdk_club[0] != club[0]:
+                allowed_club_ids.append(kdk_club[0])
+
         payload = {
             "club_id": club[0],
+            "club_ids": allowed_club_ids,
             "role": "scanner",
             "name": club[1],
             "city_english": club[3],

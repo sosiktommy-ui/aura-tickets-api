@@ -76,7 +76,15 @@ def _decode_jwt(token: str) -> Optional[dict]:
 
 class AuthInfo:
     """Результат аутентификации — передаётся дальше в endpoint."""
-    __slots__ = ("auth_type", "role", "name", "allowed_countries", "club_id")
+    __slots__ = (
+        "auth_type",
+        "role",
+        "name",
+        "allowed_countries",
+        "club_id",
+        "club_ids",
+        "city_english",
+    )
 
     def __init__(
         self,
@@ -85,12 +93,16 @@ class AuthInfo:
         name: str | None = None,
         allowed_countries: list | None = None,
         club_id: int | None = None,
+        club_ids: list | None = None,
+        city_english: str | None = None,
     ):
         self.auth_type = auth_type
         self.role = role
         self.name = name
         self.allowed_countries = allowed_countries
         self.club_id = club_id
+        self.club_ids = club_ids
+        self.city_english = city_english
 
     @property
     def role_level(self) -> int:
@@ -117,12 +129,20 @@ async def require_auth(
     if credentials and credentials.credentials:
         payload = _decode_jwt(credentials.credentials)
         if payload:
+            club_id = payload.get("club_id")
+            club_ids = payload.get("club_ids")
+            if club_id == 100:
+                club_ids = list(club_ids) if club_ids else [club_id]
+                if 101 not in club_ids:
+                    club_ids.append(101)
             return AuthInfo(
                 auth_type="jwt",
                 role=payload.get("role", "observer"),
                 name=payload.get("name"),
                 allowed_countries=payload.get("allowed_countries"),
-                club_id=payload.get("club_id"),
+                club_id=club_id,
+                club_ids=club_ids,
+                city_english=payload.get("city_english"),
             )
 
     # 3. Ничего не подошло
@@ -155,6 +175,8 @@ async def get_optional_auth(
                 name=payload.get("name"),
                 allowed_countries=payload.get("allowed_countries"),
                 club_id=payload.get("club_id"),
+                club_ids=payload.get("club_ids"),
+                city_english=payload.get("city_english"),
             )
     return None
 

@@ -9,11 +9,26 @@ from app.models import Ticket, ScanHistory
 from app.schemas import HistoryResponse, HistoryItem
 from app.dependencies.auth import require_auth, require_role, AuthInfo
 
+
+def _get_scanner_allowed_club_ids(auth: AuthInfo, db: Session) -> list[int]:
+    if auth.role != "scanner" or not auth.club_id:
+        return []
+
+    allowed_club_ids = list(auth.club_ids) if auth.club_ids else [auth.club_id]
+    if auth.club_id == 100 and 101 not in allowed_club_ids:
+        allowed_club_ids.append(101)
+    return allowed_club_ids
+
 router = APIRouter(prefix="/api/history", tags=["history"])
 
 @router.get("/", response_model=HistoryResponse)
 def get_history(event_date: str = None, limit: int = 100, db: Session = Depends(get_db), auth: AuthInfo = Depends(require_auth)):
     query = db.query(Ticket)
+
+    if auth.role == "scanner" and auth.club_id:
+        allowed_club_ids = _get_scanner_allowed_club_ids(auth, db)
+        if allowed_club_ids:
+            query = query.filter(Ticket.club_id.in_(allowed_club_ids))
     
     if event_date:
         query = query.filter(Ticket.event_date.like(f"%{event_date}%"))

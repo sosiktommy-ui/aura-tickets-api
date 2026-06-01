@@ -12,6 +12,20 @@ from app.schemas import TicketCreate, TicketResponse, TicketListResponse, SyncFi
 from app.security import generate_token, generate_signature
 from app.dependencies.auth import require_auth, require_role, AuthInfo
 
+
+def _get_scanner_allowed_club_ids(auth: AuthInfo, db: Session) -> list[int]:
+    if auth.role != "scanner" or not auth.club_id:
+        return []
+
+    allowed_club_ids = list(auth.club_ids) if auth.club_ids else [auth.club_id]
+
+    if auth.club_id == 100:
+        kdk_club = db.query(Club).filter(Club.club_id == 101).first()
+        if kdk_club and kdk_club.club_id not in allowed_club_ids:
+            allowed_club_ids.append(kdk_club.club_id)
+
+    return allowed_club_ids
+
 logger = logging.getLogger("impreza.security")
 
 def convert_date_for_db_filter(date_str: str) -> str:
@@ -126,18 +140,35 @@ def get_tickets(
     if status_filter:
         query = query.filter(Ticket.status == status_filter)
     
-    if club_id:
+    # IMPREZA: КДК фильтрация
+    # Если пользователь — сканер, то он видит только разрешённые клубы.
+    allowed_club_ids = None
+    if auth.role == "scanner" and auth.club_id:
+        allowed_club_ids = _get_scanner_allowed_club_ids(auth, db)
+        if club_id is not None and club_id not in allowed_club_ids:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Scanner access denied for requested club")
+        # Если scanner запрашивает свой собственный club_id, разрешаем расширить до всех доступных клубов.
+        query = query.filter(Ticket.club_id.in_(allowed_club_ids))
+        logger.info(
+            f"Scanner {auth.name} (club_id={auth.club_id}) filters tickets for clubs={allowed_club_ids}"
+        )
+    elif club_id:
+        # Если параметр club_id передан, используем его (для админов)
         query = query.filter(Ticket.club_id == club_id)
-    
+
     total = query.count()
     
     entered_query = db.query(Ticket).filter(Ticket.status == "used")
-    if club_id:
+    if allowed_club_ids is not None:
+        entered_query = entered_query.filter(Ticket.club_id.in_(allowed_club_ids))
+    elif club_id:
         entered_query = entered_query.filter(Ticket.club_id == club_id)
     entered = entered_query.count()
     
     pending_query = db.query(Ticket).filter(Ticket.status == "valid")
-    if club_id:
+    if allowed_club_ids is not None:
+        pending_query = pending_query.filter(Ticket.club_id.in_(allowed_club_ids))
+    elif club_id:
         pending_query = pending_query.filter(Ticket.club_id == club_id)
     pending = pending_query.count()
     
