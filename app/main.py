@@ -46,7 +46,7 @@ def root():
     return {"service": "AURA Tickets API", "version": "2.0.0", "docs": "/docs"}
 
 # Р РѕСѓС‚РµСЂС‹ РїРѕРґРєР»СЋС‡Р°РµРј РїРѕСЃР»Рµ
-from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets, admin_auth, bot_rules  # IMPREZA: добавлен deleted_tickets
+from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets, admin_auth, bot_rules, regional  # IMPREZA: добавлен deleted_tickets
 
 app.include_router(tickets.router)
 app.include_router(verify.router)
@@ -58,6 +58,7 @@ app.include_router(tilda.router)  # Подключен роутер для Tilda
 app.include_router(deleted_tickets.router)  # Архив удалённых билетов
 app.include_router(admin_auth.router)  # IMPREZA: Web admin panel JWT auth
 app.include_router(bot_rules.router)  # Bot rules CRUD (super only)
+app.include_router(regional.router)  # Региональные менеджеры (super only)
 
 # РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р‘Р” РїСЂРё РїРµСЂРІРѕРј Р·Р°РїСЂРѕСЃРµ
 @app.on_event("startup")
@@ -186,6 +187,43 @@ async def startup():
                 print("✅ Created table: countries")
             else:
                 print("✅ Table countries already exists")
+
+            # REGIONAL: таблицы региональных менеджеров + seed по умолчанию
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE IF NOT EXISTS regional_managers (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    color TEXT NOT NULL DEFAULT '#8B7BE8',
+                    position INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """))
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE IF NOT EXISTS regional_assignments (
+                    country_code VARCHAR(2) PRIMARY KEY,
+                    manager_id INTEGER REFERENCES regional_managers(id) ON DELETE CASCADE
+                )
+            """))
+            conn.commit()
+            has_mgr = conn.execute(sqlalchemy.text(
+                "SELECT EXISTS (SELECT 1 FROM regional_managers)"
+            )).scalar()
+            if not has_mgr:
+                from app.routers.regional import DEFAULT_CONFIG
+                for pos, m in enumerate(DEFAULT_CONFIG):
+                    mid = conn.execute(sqlalchemy.text(
+                        "INSERT INTO regional_managers (name, color, position) VALUES (:n,:c,:p) RETURNING id"
+                    ), {"n": m["name"], "c": m["color"], "p": pos}).scalar()
+                    for cc in m.get("countries", []):
+                        conn.execute(sqlalchemy.text("""
+                            INSERT INTO regional_assignments (country_code, manager_id)
+                            VALUES (:cc, :mid)
+                            ON CONFLICT (country_code) DO UPDATE SET manager_id = EXCLUDED.manager_id
+                        """), {"cc": cc.strip().upper(), "mid": mid})
+                conn.commit()
+                print("✅ Seeded regional_managers (default config)")
+            else:
+                print("✅ Table regional_managers already exists")
 
     except Exception as e:
         print(f"⚠️ DB init error: {e}")
