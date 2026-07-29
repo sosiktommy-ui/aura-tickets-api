@@ -46,7 +46,7 @@ def root():
     return {"service": "AURA Tickets API", "version": "2.0.0", "docs": "/docs"}
 
 # Р РѕСѓС‚РµСЂС‹ РїРѕРґРєР»СЋС‡Р°РµРј РїРѕСЃР»Рµ
-from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets, admin_auth, bot_rules, regional  # IMPREZA: добавлен deleted_tickets
+from app.routers import tickets, verify, stats, history, auth, clubs, tilda, deleted_tickets, admin_auth, bot_rules, regional, mailings  # IMPREZA: добавлен deleted_tickets
 
 app.include_router(tickets.router)
 app.include_router(verify.router)
@@ -59,6 +59,7 @@ app.include_router(deleted_tickets.router)  # Архив удалённых би
 app.include_router(admin_auth.router)  # IMPREZA: Web admin panel JWT auth
 app.include_router(bot_rules.router)  # Bot rules CRUD (super only)
 app.include_router(regional.router)  # Региональные менеджеры (super only)
+app.include_router(mailings.router)  # Рассылки: email-кампании (super only)
 
 # РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ Р‘Р” РїСЂРё РїРµСЂРІРѕРј Р·Р°РїСЂРѕСЃРµ
 @app.on_event("startup")
