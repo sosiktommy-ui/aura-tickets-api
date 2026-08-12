@@ -174,6 +174,81 @@ def _inject_tracking(html: str, campaign_id: int, email: str) -> str:
     return html
 
 
+# ── Отсев машинных «открытий» ─────────────────────────────────────
+# Почтовые провайдеры и защитные шлюзы сами дёргают картинки письма при доставке:
+# Gmail префетчит их с 66.249.x под UA «Chrome/42.0.2311.135», антиспам-шлюзы ходят
+# безликим «Mozilla/5.0». Если это считать открытиями, open-rate уезжает к 80–90%.
+# Настоящее открытие в Gmail видно по «GoogleImageProxy» — картинку тянут в момент,
+# когда человек открыл письмо.
+_REAL_UA_PAT = re.compile(r"GoogleImageProxy|YahooMailProxy", re.I)
+_BOT_UA_PAT = re.compile(
+    r"bot|crawler|spider|preview|scan|fetch|monitor|proofpoint|barracuda|mimecast|"
+    r"symantec|forcepoint|trendmicro|cloudmark|virus|secur",
+    re.I,
+)
+# Старые версии Chrome в UA — подпись префетчеров, живых браузеров с ними уже нет.
+_CHROME_VER_PAT = re.compile(r"Chrome/(\d+)\.", re.I)
+_MIN_REAL_CHROME = 60
+
+
+def _is_bot_ua(ua: Optional[str]) -> bool:
+    """True, если событие сгенерировала машина, а не человек."""
+    u = (ua or "").strip()
+    if not u:
+        return True                       # без UA — почти всегда автоматика
+    if _REAL_UA_PAT.search(u):
+        return False                      # прокси картинок = реальное открытие
+    if u.lower() == "mozilla/5.0":
+        return True                       # безликий UA антиспам-шлюзов
+    if _BOT_UA_PAT.search(u):
+        return True
+    m = _CHROME_VER_PAT.search(u)
+    if m and int(m.group(1)) < _MIN_REAL_CHROME:
+        return True
+    return False
+
+
+_BACKFILL_DONE = False
+
+
+def _backfill_bot_flags(db) -> None:
+    """Проставляет is_bot историческим событиям. Отрабатывает один раз за процесс:
+    после первого прохода строк с NULL не остаётся, а флаг гасит лишние запросы."""
+    global _BACKFILL_DONE
+    if _BACKFILL_DONE:
+        return
+    try:
+        rows = db.execute(text(
+            "SELECT DISTINCT user_agent FROM mailing_events WHERE is_bot IS NULL LIMIT 500"
+        )).fetchall()
+        for r in rows:
+            db.execute(
+                text("UPDATE mailing_events SET is_bot=:b "
+                     "WHERE is_bot IS NULL AND user_agent IS NOT DISTINCT FROM :ua"),
+                {"b": _is_bot_ua(r.user_agent), "ua": r.user_agent},
+            )
+        if rows:
+            db.commit()
+            logger.info("mailings: bot flags backfilled for %s user-agents", len(rows))
+        _BACKFILL_DONE = True
+    except Exception:
+        logger.exception("mailings: bot flag backfill failed")
+
+
+# ── Разбивка кликов по назначению ─────────────────────────────────
+# Клик по «Купить билет» и клик по иконке Instagram — разные вещи, в одну цифру
+# их сваливать бессмысленно. Категория выводится из целевого URL.
+def _click_bucket(url: Optional[str]) -> str:
+    u = (url or "").lower()
+    if "guestlist" in u or "guest_list" in u:
+        return "guestlist"
+    if "#order" in u or "/order" in u or "ticket" in u:
+        return "tickets"
+    if any(s in u for s in ("instagram.", "tiktok.", "t.me", "telegram.", "facebook.", "youtube.")):
+        return "social"
+    return "other"
+
+
 def _record_event(campaign_id: int, email: str, kind: str, url: Optional[str], request: Optional[Request]) -> None:
     db = SessionLocal()
     try:
@@ -181,10 +256,11 @@ def _record_event(campaign_id: int, email: str, kind: str, url: Optional[str], r
         ua = (request.headers.get("user-agent") if request else "") or ""
         ip = (request.client.host if request and request.client else "") or ""
         db.execute(text("""
-            INSERT INTO mailing_events (campaign_id, email, kind, url, user_agent, ip)
-            VALUES (:c, :e, :k, :u, :ua, :ip)
+            INSERT INTO mailing_events (campaign_id, email, kind, url, user_agent, ip, is_bot)
+            VALUES (:c, :e, :k, :u, :ua, :ip, :bot)
         """), {"c": campaign_id, "e": (email or "").strip().lower(), "k": kind,
-               "u": (url or "")[:500], "ua": ua[:300], "ip": ip[:64]})
+               "u": (url or "")[:500], "ua": ua[:300], "ip": ip[:64],
+               "bot": _is_bot_ua(ua)})
         db.commit()
     except Exception:
         logger.exception("mailings: failed to record %s event (campaign %s)", kind, campaign_id)
@@ -236,12 +312,19 @@ class CampaignOut(BaseModel):
     created_at: Optional[str] = None
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
-    # Трекинг (v1): открытия/клики/отписки. unique — по уникальным адресам.
+    # Трекинг (v2): открытия/клики/отписки. unique — по уникальным адресам.
+    # Машинные события отфильтрованы, их количество отдельно в bot_opens.
     opens_unique: int = 0
     opens_total: int = 0
     clicks_unique: int = 0
     clicks_total: int = 0
     unsubs: int = 0
+    bot_opens: int = 0
+    # Сколько писем ушло с трекингом. От него, а не от sent, считается процент:
+    # часть базы может уйти до включения трекинга и открытие зарегистрировать не может.
+    tracked_sent: int = 0
+    # {'tickets': N, 'guestlist': N, 'social': N, 'other': N} — уникальные кликнувшие
+    clicks_by_target: dict[str, int] = Field(default_factory=dict)
 
 
 class CampaignDetail(CampaignOut):
@@ -299,7 +382,16 @@ def _ensure_table(db) -> None:
         )
     """))
     db.execute(text("CREATE INDEX IF NOT EXISTS ix_mailing_events_cid_kind ON mailing_events(campaign_id, kind)"))
+    # is_bot — событие сгенерировано машиной (префетч картинок, антиспам-шлюз), а не человеком.
+    # NULL = ещё не классифицировано, такие строки разбирает _backfill_bot_flags.
+    db.execute(text("ALTER TABLE mailing_events ADD COLUMN IF NOT EXISTS is_bot BOOLEAN"))
+    db.execute(text("CREATE INDEX IF NOT EXISTS ix_mailing_events_bot ON mailing_events(campaign_id, kind, is_bot)"))
+    # tracked — сколько писем кампании реально ушло с пикселем и обёрнутыми ссылками.
+    # Для внешних скриптов может быть меньше sent (часть базы ушла до включения трекинга),
+    # и тогда процент открытий надо считать именно от него, иначе метрика занижена.
+    db.execute(text("ALTER TABLE mailing_campaigns ADD COLUMN IF NOT EXISTS tracked INTEGER NOT NULL DEFAULT 0"))
     db.commit()
+    _backfill_bot_flags(db)
 
 
 def _load_suppressed(db) -> set[str]:
@@ -339,27 +431,52 @@ def _iso(v) -> Optional[str]:
     return str(v)
 
 
-_EMPTY_STATS = {"opens_unique": 0, "opens_total": 0, "clicks_unique": 0, "clicks_total": 0, "unsubs": 0}
+_EMPTY_STATS = {"opens_unique": 0, "opens_total": 0, "clicks_unique": 0, "clicks_total": 0,
+                "unsubs": 0, "bot_opens": 0, "clicks_by_target": {}}
 
 
 def _stats_map(db, ids: list[int]) -> dict[int, dict]:
-    """Считает открытия/клики/отписки по кампаниям одним махом (id → метрики)."""
+    """Считает открытия/клики/отписки по кампаниям одним махом (id → метрики).
+
+    Машинные события (is_bot) в открытия и клики НЕ попадают — они уезжают
+    в отдельный счётчик bot_opens, чтобы цифра в панели означала живых людей."""
     out = {i: dict(_EMPTY_STATS) for i in ids}
+    for i in ids:
+        out[i]["clicks_by_target"] = {}
     if not ids:
         return out
     try:
         ev = text("""
-            SELECT campaign_id, kind, COUNT(*) AS total, COUNT(DISTINCT email) AS uniq
-            FROM mailing_events WHERE campaign_id IN :ids GROUP BY campaign_id, kind
+            SELECT campaign_id, kind, is_bot IS TRUE AS bot,
+                   COUNT(*) AS total, COUNT(DISTINCT email) AS uniq
+            FROM mailing_events WHERE campaign_id IN :ids
+            GROUP BY campaign_id, kind, is_bot IS TRUE
         """).bindparams(bindparam("ids", expanding=True))
         for r in db.execute(ev, {"ids": ids}).fetchall():
             s = out.get(r.campaign_id)
             if not s:
                 continue
             if r.kind == "open":
-                s["opens_total"], s["opens_unique"] = r.total, r.uniq
-            elif r.kind == "click":
+                if r.bot:
+                    s["bot_opens"] += r.total
+                else:
+                    s["opens_total"], s["opens_unique"] = r.total, r.uniq
+            elif r.kind == "click" and not r.bot:
                 s["clicks_total"], s["clicks_unique"] = r.total, r.uniq
+
+        # клики в разрезе «билеты / гостевой лист / соцсети»
+        cb = text("""
+            SELECT campaign_id, url, COUNT(DISTINCT email) AS uniq
+            FROM mailing_events
+            WHERE campaign_id IN :ids AND kind='click' AND is_bot IS NOT TRUE
+            GROUP BY campaign_id, url
+        """).bindparams(bindparam("ids", expanding=True))
+        for r in db.execute(cb, {"ids": ids}).fetchall():
+            s = out.get(r.campaign_id)
+            if not s:
+                continue
+            bucket = _click_bucket(r.url)
+            s["clicks_by_target"][bucket] = s["clicks_by_target"].get(bucket, 0) + r.uniq
         un = text("""
             SELECT campaign_id, COUNT(*) AS n FROM mailing_unsubscribes
             WHERE campaign_id IN :ids GROUP BY campaign_id
@@ -396,6 +513,10 @@ def _row_to_out(r, stats: Optional[dict] = None) -> CampaignOut:
         clicks_unique=s["clicks_unique"],
         clicks_total=s["clicks_total"],
         unsubs=s["unsubs"],
+        bot_opens=s.get("bot_opens", 0),
+        # tracked заполняет отправитель; 0 у старых кампаний — тогда считаем от sent
+        tracked_sent=(getattr(r, "tracked", 0) or 0) or r.sent,
+        clicks_by_target=s.get("clicks_by_target") or {},
     )
 
 
@@ -529,7 +650,7 @@ def _send_worker(campaign_id: int) -> None:
             db.execute(text("""
                 UPDATE mailing_campaigns
                 SET sent_emails=CAST(:se AS JSONB), failed=CAST(:fa AS JSONB),
-                    sent=:sent, failed_count=:fc
+                    sent=:sent, failed_count=:fc, tracked=:sent
                 WHERE id=:id
             """), {
                 "id": campaign_id,
@@ -625,7 +746,7 @@ def list_campaigns(_auth=Depends(require_role("super")), db=Depends(get_db)):
     _ensure_table(db)
     rows = db.execute(text("""
         SELECT id, name, subject, from_name, reply_to, status, total, sent, failed_count,
-               recipients, error, created_by, created_at, started_at, finished_at
+               recipients, error, created_by, created_at, started_at, finished_at, tracked
         FROM mailing_campaigns ORDER BY id DESC LIMIT 200
     """)).fetchall()
     stats = _stats_map(db, [r.id for r in rows])
