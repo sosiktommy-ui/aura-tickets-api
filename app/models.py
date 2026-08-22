@@ -3,6 +3,34 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 
+# Приставка в transaction_id -> как показывать платёжку человеку.
+# Держим на уровне модуля, а не в классе: у declarative-моделей всё, что лежит
+# в теле класса, проходит через маппер — лишнего туда не кладём.
+PAYMENT_LABELS = {
+    "stripe": "Stripe",
+    "viva": "Viva.com",
+    "sumup": "SumUp",
+    "paypal": "PayPal",
+    "przelewy24": "Przelewy24",
+    "p24": "Przelewy24",
+}
+
+
+def payment_label(transaction_id) -> str:
+    """«stripe:ch_123» -> «Stripe». Неизвестное или пустое -> ''.
+
+    ТОЛЬКО ДЛЯ ПОКАЗА. Ни проверка QR, ни подпись, ни доступ сюда не смотрят,
+    поэтому уже выпущенные билеты этим не задеть.
+    """
+    raw = (transaction_id or "").strip()
+    if ":" not in raw:
+        return ""
+    key = raw.split(":", 1)[0].strip().lower()
+    if key in PAYMENT_LABELS:
+        return PAYMENT_LABELS[key]
+    return key.title() if key.isalpha() and len(key) <= 20 else ""
+
+
 class Ticket(Base):
     __tablename__ = "tickets"
     
@@ -49,6 +77,17 @@ class Ticket(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     scan_history = relationship("ScanHistory", back_populates="ticket")
+
+    # ── Платёжка: ТОЛЬКО ДЛЯ ПОКАЗА ─────────────────────────────────────────
+    # Колонки в базе нет и не нужно: имя платёжки уже лежит приставкой в
+    # transaction_id ("stripe:ch_…", "viva:…", "sumup:…") — так пишет и выгрузка
+    # Tilda, и наш шлюз. Поэтому старые билеты подписываются сами собой, а
+    # миграции, способной что-то сломать, не требуется.
+    # Ни на проверку QR, ни на подпись, ни на доступ это не влияет.
+    @property
+    def payment_provider(self) -> str:
+        """Читаемое имя платёжной системы или '' — только для отображения."""
+        return payment_label(self.transaction_id)
 
 
 class ScanHistory(Base):

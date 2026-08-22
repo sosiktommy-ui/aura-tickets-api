@@ -249,7 +249,10 @@ def ticket_to_dict(ticket: Ticket) -> dict:
         "promocode": ticket.promocode or "",
         "scan_count": ticket.scan_count,
         "quantity": ticket.quantity or 1,
-        "first_scan_at": ticket.first_scan_at.isoformat() if ticket.first_scan_at else None
+        "first_scan_at": ticket.first_scan_at.isoformat() if ticket.first_scan_at else None,
+        # Чем оплачено. Справочная надпись для контролёра: на решение
+        # «пускать / не пускать» не влияет и в проверке подписи не участвует.
+        "payment_provider": ticket.payment_provider,
     }
 
 

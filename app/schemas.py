@@ -47,6 +47,10 @@ class TicketResponse(BaseModel):
     club_id: Optional[int]
     visible_to_managers: Optional[bool]
     quantity: Optional[int] = 1  # Количество персон на билете
+    # Чем оплачено — «Stripe» / «Viva.com» / «SumUp» / ''. Считается из
+    # transaction_id (см. models.payment_label), в базе не хранится.
+    # ТОЛЬКО ДЛЯ ПОКАЗА в сканере и админке.
+    payment_provider: Optional[str] = ""
     
     class Config:
         from_attributes = True
