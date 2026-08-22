@@ -10,6 +10,8 @@ PAYMENT_LABELS = {
     "stripe": "Stripe",
     "viva": "Viva.com",
     "sumup": "SumUp",
+    # Заказ на 0 по промокоду: платёжку не проходил вовсе.
+    "free": "Без оплаты",
     "paypal": "PayPal",
     "przelewy24": "Przelewy24",
     "p24": "Przelewy24",
