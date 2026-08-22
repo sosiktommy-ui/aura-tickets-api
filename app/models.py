@@ -18,19 +18,32 @@ PAYMENT_LABELS = {
 }
 
 
-def payment_label(transaction_id) -> str:
-    """«stripe:ch_123» -> «Stripe». Неизвестное или пустое -> ''.
+def payment_label(transaction_id, price=None) -> str:
+    """«stripe:ch_123» -> «Stripe». Неизвестное -> ''.
+
+    Если приставки нет, а платить было нечего (цена 0 — промокод на всю сумму
+    или комплиментарный билет), это не «неизвестно», а «Без оплаты»: платёжку
+    такой заказ не проходил вовсе. Так подписываются и старые бесплатные
+    билеты, у которых номер платежа в таблице пустой.
 
     ТОЛЬКО ДЛЯ ПОКАЗА. Ни проверка QR, ни подпись, ни доступ сюда не смотрят,
-    поэтому уже выпущенные билеты этим не задеть.
+    поэтому уже выпущенные билеты этим не задеть (номер платежа в строку QR
+    не входит — см. qrbot.create_qr_data).
     """
     raw = (transaction_id or "").strip()
-    if ":" not in raw:
+    if ":" in raw:
+        key = raw.split(":", 1)[0].strip().lower()
+        if key in PAYMENT_LABELS:
+            return PAYMENT_LABELS[key]
+        if key.isalpha() and len(key) <= 20:
+            return key.title()
         return ""
-    key = raw.split(":", 1)[0].strip().lower()
-    if key in PAYMENT_LABELS:
-        return PAYMENT_LABELS[key]
-    return key.title() if key.isalpha() and len(key) <= 20 else ""
+    try:
+        if float(price or 0) <= 0:
+            return PAYMENT_LABELS["free"]
+    except (TypeError, ValueError):
+        pass
+    return ""
 
 
 class Ticket(Base):
@@ -89,7 +102,7 @@ class Ticket(Base):
     @property
     def payment_provider(self) -> str:
         """Читаемое имя платёжной системы или '' — только для отображения."""
-        return payment_label(self.transaction_id)
+        return payment_label(self.transaction_id, self.price)
 
 
 class ScanHistory(Base):
