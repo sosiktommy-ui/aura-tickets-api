@@ -28,8 +28,13 @@ router = APIRouter(prefix="/api/admin", tags=["admin-auth"])
 #   "country_manager": {
 #     "pass7": {"name": "Катя", "countries": ["BG", "NL", "DE"]},
 #     "pass8": {"name": "Фёдор", "countries": ["PL"]}
+#   },
+#   "events_viewer": {
+#     "pass9": {"name": "Имя"}
 #   }
 # }
+# events_viewer видит в панели ТОЛЬКО вкладку «Мероприятия», без права
+# редактировать/скрывать/удалять билеты (см. getVisibleTabs в фронтенде).
 
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
@@ -76,6 +81,15 @@ def check_role(password: str):
     cm = pw_config.get("country_manager", {})
     if isinstance(cm, dict) and password in cm:
         return "country_manager"
+
+    # events_viewer — видит только вкладку «Мероприятия», read-only.
+    # Формат гибкий: список паролей ["..."] или словарь {"пароль": {"name": "..."}}
+    # (второй вариант даёт имя, как у country_manager).
+    ev = pw_config.get("events_viewer", {})
+    if isinstance(ev, dict) and password in ev:
+        return "events_viewer"
+    if isinstance(ev, list) and password in ev:
+        return "events_viewer"
 
     return None
 
@@ -165,6 +179,13 @@ def admin_login(req: AdminLoginRequest):
         allowed_countries = account.get("countries")
         payload["name"] = name
         payload["allowed_countries"] = allowed_countries
+
+    if role == "events_viewer":
+        pw_config = _get_passwords()
+        ev = pw_config.get("events_viewer", {})
+        if isinstance(ev, dict):
+            name = ev.get(req.password, {}).get("name")
+            payload["name"] = name
 
     token = create_jwt_token(payload)
 

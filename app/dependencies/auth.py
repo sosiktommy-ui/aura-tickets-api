@@ -26,6 +26,7 @@ logger = logging.getLogger("impreza.security")
 # Роли (от низшей к высшей)
 # ────────────────────────────────────────────
 ROLE_HIERARCHY = {
+    "events_viewer": 0,    # видит ТОЛЬКО вкладку «Мероприятия», без прав редактирования
     "observer": 0,
     "country_manager": 1,
     "manager": 2,
