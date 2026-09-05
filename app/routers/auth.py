@@ -18,7 +18,15 @@ logger = logging.getLogger("impreza.security")
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 JWT_ALGORITHM = "HS256"
-SCANNER_TOKEN_HOURS = 24
+
+# Токен сканера живёт 30 суток — столько же, сколько сам сканер помнит сессию
+# (`impreza-web-scanner/index.html`: SESSION_DURATION = 30 дней).
+#
+# Было 24 часа, и это ловило персонал на входе: сессия в телефоне жива, а
+# токен уже протух — приложение не может дёрнуть API и показывает экран
+# входа. Человек стоит с очередью и вводит пароль клуба.
+# МЕНЯЕТЕ ЗДЕСЬ — правьте и SESSION_DURATION в сканере: разъедутся снова.
+SCANNER_TOKEN_HOURS = 24 * 30
 
 class LoginRequest(BaseModel):
     login: str
